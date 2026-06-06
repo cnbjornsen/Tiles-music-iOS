@@ -110,11 +110,13 @@
     <h1>Tiles Music</h1>
     <p class="sub">Ram tilene i takt med musikken. Hold de lange tiles nede til de er færdige.</p>
     <button class="primary" id="btn-demo">▶︎ Spil demo</button>
-    <button class="primary" id="btn-apple" style="background:linear-gradient(120deg,#fa2d48,#ff5e3a)">🔎 Søg sange & hør uddrag</button>
-    <p class="muted" style="margin-top:-8px">Intet login. Søger på tværs af musiktjenester og spiller rigtige 30-sek. uddrag.</p>
+
+    <div style="font-weight:700;margin-top:4px">Spil til rigtige sange</div>
+    <button class="primary" id="btn-apple" style="background:linear-gradient(120deg,#fa2d48,#ff5e3a)">🍎 Apple Music – søg</button>
+    <button class="primary" id="btn-deezer" style="background:linear-gradient(120deg,#a238ff,#ef5466)">🟣 Deezer – søg</button>
 
     <div class="panel">
-      <div style="font-weight:700;margin-bottom:6px">Spil til dine egne sange (Spotify)</div>
+      <div style="font-weight:700;margin-bottom:6px">🟢 Spotify – dit bibliotek</div>
       <div class="muted" id="sp-status">Log ind for at vælge sange fra dit bibliotek.</div>
       <div id="sp-config">
         <label>Spotify Client ID</label>
@@ -128,7 +130,7 @@
       <div style="height:8px"></div>
       <button id="btn-logout" style="display:none;background:#ffffff15;border:0;color:#fff;border-radius:999px;padding:8px 16px">Log ud</button>
     </div>
-    <p class="muted">På iPad spiller demoen syntetisk musik. Den rigtige Spotify-lyd kommer i den native app.</p>
+    <p class="muted">Søgning afspiller 30-sek. uddrag. Fulde sange kræver login og virker kun begrænset i browseren – se den native app for fuld afspilning.</p>
   </section>
 
   <!-- LIBRARY -->
@@ -149,7 +151,7 @@
   <section id="applemusic" class="screen">
     <div class="topbar">
       <button id="am-back">‹ Tilbage</button>
-      <h2>Søg efter musik</h2>
+      <h2 id="am-title">Søg efter musik</h2>
     </div>
     <div style="padding:0 16px 8px">
       <input id="am-input" placeholder="Søg efter sang eller kunstner…" autocomplete="off"
@@ -442,8 +444,12 @@ class Game {
 // ============================================================ Highscore
 const HS = {
   key:(id,d)=>`hs.${id}.${d}`,
-  best:(id,d)=>parseInt(localStorage.getItem(HS.key(id,d))||'0',10),
-  submit:(score,id,d)=>{ const prev=HS.best(id,d); if(score>prev){ localStorage.setItem(HS.key(id,d),score); return {best:score,isNew:true}; } return {best:prev,isNew:false}; }
+  best:(id,d)=>{ try{ return parseInt(localStorage.getItem(HS.key(id,d))||'0',10)||0; }catch(e){ return 0; } },
+  submit:(score,id,d)=>{
+    const prev=HS.best(id,d);
+    if(score>prev){ try{ localStorage.setItem(HS.key(id,d), String(score)); }catch(e){} return {best:score,isNew:true}; }
+    return {best:prev,isNew:false};
+  }
 };
 
 // ============================================================ Spotify (login + bibliotek)
@@ -534,8 +540,17 @@ function refreshLoginUI(){
   $('#sp-status').textContent = inn ? 'Logget ind ✓' : 'Log ind for at vælge sange fra dit bibliotek.';
 }
 
+let searchProvider = 'deezer';
+function openSearch(provider, title){
+  searchProvider = provider;
+  $('#am-title').textContent = title;
+  $('#am-input').value = '';
+  $('#am-list').innerHTML = '<p class="muted" style="padding:16px">Søg fx efter "Dua Lipa" eller en sangtitel.</p>';
+  show('applemusic'); setTimeout(()=>$('#am-input').focus(),100);
+}
 $('#btn-demo').onclick = ()=>{ current=null; openSetup(); };
-$('#btn-apple').onclick = ()=>{ show('applemusic'); setTimeout(()=>$('#am-input').focus(),100); };
+$('#btn-apple').onclick = ()=>openSearch('apple','Apple Music');
+$('#btn-deezer').onclick = ()=>openSearch('deezer','Deezer');
 $('#am-back').onclick = ()=>show('home');
 $('#btn-login').onclick = ()=>Spotify.login();
 $('#btn-logout').onclick = ()=>{ Spotify.logout(); refreshLoginUI(); };
@@ -611,7 +626,7 @@ $('#am-input').addEventListener('input', e=>{
   const term = e.target.value.trim();
   clearTimeout(amTimer);
   if(!term){ $('#am-list').innerHTML='<p class="muted" style="padding:16px">Skriv for at søge…</p>'; return; }
-  amTimer = setTimeout(()=>appleSearch(term), 350); // lille forsinkelse så vi ikke søger ved hvert tegn
+  amTimer = setTimeout(()=>doSearch(term), 350); // lille forsinkelse så vi ikke søger ved hvert tegn
 });
 
 // Henter JSON og prøver flere veje, fordi iTunes-API'et ikke sender CORS-headers til Safari.
@@ -627,24 +642,26 @@ async function fetchJSON(url){
   return await jsonp(url); // sidste udvej
 }
 
-async function appleSearch(term){
+async function fetchTracks(provider, term){
+  if(provider==='deezer'){
+    // Deezer understøtter officielt JSONP – virker uden CORS-bøvl i Safari.
+    const dz = await jsonp('https://api.deezer.com/search?output=jsonp&limit=30&q=' + encodeURIComponent(term));
+    return (dz.data||[]).filter(x=>x.preview).map(deezerTrack);
+  } else {
+    // Apple/iTunes via CORS-proxy (sender ikke CORS-headers selv).
+    const it = await fetchJSON('https://itunes.apple.com/search?media=music&entity=song&limit=30&term=' + encodeURIComponent(term));
+    return (it.results||[]).filter(r=>r.previewUrl).map(appleTrack);
+  }
+}
+
+async function doSearch(term){
   const list=$('#am-list'); list.innerHTML='<p class="muted" style="padding:16px">Søger…</p>';
   let tracks = [];
-
-  // 1) Deezer – understøtter officielt JSONP, så det virker uden CORS-bøvl i Safari.
-  try{
-    const dz = await jsonp('https://api.deezer.com/search?output=jsonp&limit=30&q=' + encodeURIComponent(term));
-    tracks = (dz.data||[]).filter(x=>x.preview).map(deezerTrack);
-  }catch(e){ /* prøv iTunes nedenfor */ }
-
-  // 2) Reserve: iTunes via CORS-proxy.
+  try{ tracks = await fetchTracks(searchProvider, term); }catch(e){ /* prøv reserve */ }
   if(!tracks.length){
-    try{
-      const it = await fetchJSON('https://itunes.apple.com/search?media=music&entity=song&limit=30&term=' + encodeURIComponent(term));
-      tracks = (it.results||[]).filter(r=>r.previewUrl).map(appleTrack);
-    }catch(e){ /* falder igennem */ }
+    const other = searchProvider==='deezer' ? 'apple' : 'deezer';
+    try{ tracks = await fetchTracks(other, term); }catch(e){ /* falder igennem */ }
   }
-
   if(!tracks.length){ list.innerHTML='<p class="muted" style="padding:16px">Ingen resultater (eller søgning fejlede). Prøv en anden søgning.</p>'; return; }
   list.innerHTML=''; tracks.forEach(t=>list.appendChild(trackRow(t)));
 }
@@ -750,7 +767,7 @@ function onGameEnd(win){
   $('#res-badge').style.display = rec.isNew?'inline-block':'none';
   show('result');
 }
-$('#btn-again').onclick = ()=>{ show('setup'); };
+$('#btn-again').onclick = ()=>{ openSetup(); }; // openSetup opdaterer også rekord-linjen
 
 // ---- Canvas størrelse (retina) ----
 function sizeCanvas(c){
