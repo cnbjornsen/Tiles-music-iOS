@@ -13,7 +13,9 @@ Log ind med Spotify, vælg en sang fra dit bibliotek, og ram tilene i takt med m
 - Browse dine **mest spillede sange, gemte sange og playlister**.
 - Vælg en sang og en **sværhedsgrad** (Let / Mellem / Svær).
 - Spil et **4-baners tile-spil** hvor tilene falder i takt med sangens tempo (BPM).
+- **Tap-tiles og hold-tiles** (lange toner der skal holdes nede).
 - **Point, combo, liv** og resultatskærm.
+- **Lokale rekorder** pr. sang og sværhedsgrad (gemmes på enheden).
 - **Afspilning af den rigtige Spotify-sang** under spillet via Spotify App Remote (kræver Premium – se nedenfor).
 
 ---
@@ -119,12 +121,33 @@ TilesMusic/
 ## 🎮 Sådan spiller man
 Tiles falder ned i fire baner. Tryk i den rigtige bane lige når en tile rammer
 den hvide linje. Jo mere præcist, jo flere point – og en høj **combo** giver bonus.
-Du har 5 liv; misser du for mange tiles, er det game over.
+
+- **Tap-tiles:** et hurtigt tryk når tilen rammer linjen.
+- **Hold-tiles:** lange, glødende bjælker – tryk og **hold fingeren nede** indtil
+  bjælken er "spist" af hit-linjen. Slipper du for tidligt, mister du et liv.
+
+Du har 5 liv; misser du for mange tiles, er det game over. Din bedste score
+gemmes lokalt pr. sang og sværhedsgrad.
+
+---
+
+## ✨ Animationer (hvad du ser på skærmen)
+- **Faldende tiles** glider jævnt nedad i baneflens farve (CADisplayLink → 60/120 fps).
+- **Hit-pop:** ved hvert ramt tile vokser en lysende ring ud fra hit-linjen og fader –
+  hvid ved "Perfekt", banens farve ved "Godt".
+- **Hold-glød:** mens du holder, lyser bjælken hvidt og gløder, og halen skrumper
+  ned mod linjen indtil tonen er færdig.
+- **Bane-glød:** banen lyser blødt op så længe en finger holder den nede.
+- **Score** ruller med en tal-animation; **combo** giver et lille "pop"-hop hver gang den stiger.
+- **Miss:** en rød kant blinker kort rundt om skærmen, og et hjerte forsvinder med et bounce.
+- **Dom-tekst** ("Perfekt!/Godt/Miss") popper ind skaleret og fader ud igen.
+- **Resultatskærm:** "Ny rekord!"-badge springer ind med en fjeder-animation.
 
 ---
 
 ## 🛠 Idéer til videreudvikling
-- Lokal highscore-liste pr. sang.
 - Bedre synkronisering ved at læse den faktiske afspilningsposition fra App Remote.
-- "Hold"-tiles (lange toner) og to-fingers-tiles.
+- Partikel-effekter / "shake" ved høj combo.
+- To-fingers-tiles (tryk to baner samtidig).
+- Online leaderboard via Game Center.
 - Egne sange/lydfiler som alternativ til Spotify.

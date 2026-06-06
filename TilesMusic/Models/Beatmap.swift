@@ -6,16 +6,30 @@ let kLaneCount = 4
 /// Status for en enkelt tile under spillet.
 enum TileState {
     case pending   // falder ned, endnu ikke ramt
+    case holding   // hold-tile som spilleren holder nede netop nu
     case hit       // ramt korrekt
-    case missed    // passerede hit-linjen uden et tryk
+    case missed    // passerede hit-linjen uden et tryk (eller blev sluppet for tidligt)
 }
 
 /// En enkelt tile i et beatmap.
+///
+/// Hvis `duration > 0` er det en "hold-tile" (lang tone): den skal trykkes ved
+/// `time` og holdes nede indtil `endTime`. Ellers er det en almindelig tap-tile.
 struct Tile: Identifiable {
     let id = UUID()
     let lane: Int        // 0 ..< kLaneCount
-    let time: Double     // tidspunkt (sekunder) hvor den skal rammes
+    let time: Double     // tidspunkt (sekunder) hvor hovedet skal rammes
+    let duration: Double // 0 = tap-tile, >0 = hold-tile
     var state: TileState = .pending
+
+    var isHold: Bool { duration > 0 }
+    var endTime: Double { time + duration }
+
+    init(lane: Int, time: Double, duration: Double = 0) {
+        self.lane = lane
+        self.time = time
+        self.duration = duration
+    }
 }
 
 /// Et beatmap er en tidsordnet liste af tiles for en bestemt sang.
@@ -24,7 +38,7 @@ struct Beatmap {
     let tiles: [Tile]
 
     /// Sidste tidspunkt hvor noget sker — bruges til at afgøre hvornår spillet er slut.
-    var endTime: Double { (tiles.map(\.time).max() ?? 0) + 2.0 }
+    var endTime: Double { (tiles.map(\.endTime).max() ?? 0) + 2.0 }
 }
 
 /// Sværhedsgrad styrer hvor mange tiles der genereres pr. takt.
@@ -50,6 +64,15 @@ enum Difficulty: String, CaseIterable, Identifiable {
         case .easy: return 1.9
         case .medium: return 1.5
         case .hard: return 1.15
+        }
+    }
+
+    /// Sandsynlighed (0–1) for at en tile bliver en hold-tile.
+    var holdChance: Double {
+        switch self {
+        case .easy: return 0.08
+        case .medium: return 0.16
+        case .hard: return 0.24
         }
     }
 }
@@ -82,6 +105,20 @@ enum BeatmapGenerator {
                 lane = (lane + 1) % kLaneCount
             }
             lastLane = lane
+
+            // Indimellem en hold-tile på 2–4 beats. Vi springer frem forbi holdets
+            // varighed, så banen er "optaget" af den lange tone imens.
+            let roll = Double(rng.next() % 1000) / 1000.0
+            if roll < difficulty.holdChance {
+                let beats = 2 + Int(rng.next() % 3)        // 2, 3 eller 4 beats
+                let holdDuration = secondsPerBeat * Double(beats)
+                if t + holdDuration < end {
+                    tiles.append(Tile(lane: lane, time: t, duration: holdDuration))
+                    t += holdDuration + interval
+                    continue
+                }
+            }
+
             tiles.append(Tile(lane: lane, time: t))
             t += interval
         }

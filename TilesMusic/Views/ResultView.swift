@@ -5,8 +5,12 @@ struct ResultView: View {
     let track: Track
     let score: Int
     let maxCombo: Int
+    let bestScore: Int
+    let isNewRecord: Bool
     let didWin: Bool
     let onDone: () -> Void
+
+    @State private var showRecordBadge = false
 
     var body: some View {
         ZStack {
@@ -29,9 +33,20 @@ struct ResultView: View {
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
 
+                if isNewRecord {
+                    Label("Ny rekord!", systemImage: "star.fill")
+                        .font(.title3.bold())
+                        .foregroundStyle(.yellow)
+                        .padding(.horizontal, 18).padding(.vertical, 8)
+                        .background(.yellow.opacity(0.15), in: Capsule())
+                        .scaleEffect(showRecordBadge ? 1 : 0.4)
+                        .opacity(showRecordBadge ? 1 : 0)
+                }
+
                 VStack(spacing: 12) {
                     statRow(label: "Score", value: "\(score)")
                     statRow(label: "Største combo", value: "×\(maxCombo)")
+                    statRow(label: "Rekord", value: "\(bestScore)")
                 }
                 .padding()
                 .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 16))
@@ -52,6 +67,11 @@ struct ResultView: View {
                 Spacer()
             }
             .padding()
+        }
+        .onAppear {
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.5).delay(0.2)) {
+                showRecordBadge = true
+            }
         }
     }
 

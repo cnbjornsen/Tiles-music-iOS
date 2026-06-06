@@ -27,7 +27,13 @@ struct GameSetupView: View {
             .pickerStyle(.segmented)
             .padding(.horizontal)
 
-            Text("Tiles falder i takt med sangens tempo. Tryk i den rigtige bane lige når tilen rammer linjen.")
+            let best = HighscoreStore.best(trackID: track.id, difficulty: difficulty)
+            Label(best > 0 ? "Rekord: \(best)" : "Ingen rekord endnu",
+                  systemImage: best > 0 ? "trophy.fill" : "trophy")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(best > 0 ? .yellow : .secondary)
+
+            Text("Tiles falder i takt med sangens tempo. Tryk i den rigtige bane lige når tilen rammer linjen. Lange tiles (hold-tiles) skal holdes nede til de er færdige.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
