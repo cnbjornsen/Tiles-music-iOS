@@ -1,46 +1,116 @@
 import Foundation
 import UIKit
+
+#if canImport(SpotifyiOS)
+import SpotifyiOS
+#else
 import AuthenticationServices
 import CryptoKit
+#endif
 
-/// Håndterer Spotify-login via OAuth 2.0 Authorization Code + PKCE,
-/// samt opbevaring og fornyelse af tokens.
+/// Håndterer Spotify-login og token-management.
+///
+/// Med Spotify iOS SDK: bruger SPTSessionManager – åbner Spotify-appen direkte.
+/// Uden SDK: PKCE-web-flow via ASWebAuthenticationSession som fallback.
 @MainActor
 final class SpotifyAuthManager: NSObject, ObservableObject {
 
-    /// Delt instans, så auth, API og afspilning bruger samme tokens.
     static let shared = SpotifyAuthManager()
 
     @Published private(set) var isLoggedIn = false
     @Published var lastError: String?
 
     private(set) var accessToken: String?
-    private var refreshToken: String?
     private var expiresAt: Date = .distantPast
+    private var renewalContinuations: [CheckedContinuation<String, Error>] = []
 
+#if canImport(SpotifyiOS)
+    private lazy var sessionManager: SPTSessionManager = {
+        let cfg = SPTConfiguration(clientID: SpotifyConfig.clientID,
+                                   redirectURL: URL(string: SpotifyConfig.redirectURI)!)
+        return SPTSessionManager(configuration: cfg, delegate: self)
+    }()
+#else
+    private var refreshToken: String?
     private var codeVerifier: String?
     private var webAuthSession: ASWebAuthenticationSession?
-
-    private let tokenKey = "spotify.refreshToken"
+    private let refreshTokenKey = "spotify.refreshToken"
+#endif
 
     override init() {
         super.init()
-        // Genskab session hvis vi har et gemt refresh token.
-        if let saved = Keychain.get(tokenKey) {
-            self.refreshToken = saved
-            self.isLoggedIn = true
-        }
+        restoreSession()
     }
 
-    // MARK: - Public
+    // MARK: - Platform-specific public API
 
-    /// Starter login-flowet i et sikkert web-view.
+#if canImport(SpotifyiOS)
+
+    private func restoreSession() {
+        guard let data = UserDefaults.standard.data(forKey: "spotify.session"),
+              let session = try? NSKeyedUnarchiver.unarchivedObject(ofClass: SPTSession.self, from: data)
+        else { return }
+        sessionManager.session = session
+        if !session.isExpired {
+            accessToken = session.accessToken
+            expiresAt = session.expirationDate
+        }
+        isLoggedIn = true
+    }
+
     func login() {
         guard SpotifyConfig.isConfigured else {
             lastError = "Du mangler at indsætte dit Spotify Client ID i SpotifyConfig.swift."
             return
         }
+        let scopes: SPTScope = [
+            .appRemoteControl, .streaming,
+            .playlistReadPrivate, .playlistReadCollaborative,
+            .userLibraryRead, .userTopRead,
+            .userReadPrivate, .userReadEmail,
+        ]
+        // SPTAuthorizationOptions() == rawValue 0 == default (Spotify app if installed, else browser)
+        sessionManager.initiateSession(with: scopes, options: SPTAuthorizationOptions(), campaign: nil)
+    }
 
+    @discardableResult
+    func handleOpenURL(_ url: URL) -> Bool {
+        // Only hand auth-code callbacks to SPTSessionManager.
+        // App Remote access_token callbacks are handled separately by PlaybackController.
+        guard URLComponents(url: url, resolvingAgainstBaseURL: false)?
+            .queryItems?.contains(where: { $0.name == "code" }) == true else { return false }
+        return sessionManager.application(UIApplication.shared, open: url, options: [:])
+    }
+
+    func logout() {
+        UserDefaults.standard.removeObject(forKey: "spotify.session")
+        accessToken = nil
+        expiresAt = .distantPast
+        isLoggedIn = false
+    }
+
+    func validAccessToken() async throws -> String {
+        if let token = accessToken, Date() < expiresAt.addingTimeInterval(-30) { return token }
+        return try await withCheckedThrowingContinuation { cont in
+            renewalContinuations.append(cont)
+            sessionManager.renewSession()
+        }
+    }
+
+#else
+
+    private func restoreSession() {
+        if let saved = Keychain.get(refreshTokenKey) {
+            refreshToken = saved
+            isLoggedIn = true
+        }
+    }
+
+    func login() {
+        guard SpotifyConfig.isConfigured else {
+            lastError = "Du mangler at indsætte dit Spotify Client ID i SpotifyConfig.swift."
+            return
+        }
         let verifier = Self.randomCodeVerifier()
         codeVerifier = verifier
         let challenge = Self.codeChallenge(for: verifier)
@@ -61,15 +131,13 @@ final class SpotifyAuthManager: NSObject, ObservableObject {
         ) { [weak self] callbackURL, error in
             guard let self else { return }
             if let error {
-                if (error as? ASWebAuthenticationSessionError)?.code == .canceledLogin {
-                    return // brugeren lukkede selv – ingen fejl at vise
-                }
+                if (error as? ASWebAuthenticationSessionError)?.code == .canceledLogin { return }
                 Task { @MainActor in self.lastError = error.localizedDescription }
                 return
             }
             guard let callbackURL,
                   let code = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false)?
-                .queryItems?.first(where: { $0.name == "code" })?.value else {
+                      .queryItems?.first(where: { $0.name == "code" })?.value else {
                 Task { @MainActor in self.lastError = "Manglede autorisationskode fra Spotify." }
                 return
             }
@@ -77,33 +145,93 @@ final class SpotifyAuthManager: NSObject, ObservableObject {
         }
         session.presentationContextProvider = self
         session.prefersEphemeralWebBrowserSession = false
-        self.webAuthSession = session
+        webAuthSession = session
         session.start()
     }
 
+    @discardableResult
+    func handleOpenURL(_ url: URL) -> Bool { false }
+
     func logout() {
-        Keychain.delete(tokenKey)
+        Keychain.delete(refreshTokenKey)
         accessToken = nil
         refreshToken = nil
         expiresAt = .distantPast
         isLoggedIn = false
     }
 
-    /// Returnerer et gyldigt access token, fornyer hvis nødvendigt.
     func validAccessToken() async throws -> String {
-        if let token = accessToken, Date() < expiresAt.addingTimeInterval(-30) {
-            return token
+        if let token = accessToken, Date() < expiresAt.addingTimeInterval(-30) { return token }
+        guard refreshToken != nil else { throw SpotifyError.notAuthenticated }
+        return try await withCheckedThrowingContinuation { cont in
+            renewalContinuations.append(cont)
+            Task { try? await self.refreshAccessToken() }
         }
-        try await refreshAccessToken()
-        guard let token = accessToken else {
-            throw SpotifyError.notAuthenticated
-        }
-        return token
     }
 
-    // MARK: - Token exchange
+#endif
 
-    private func exchangeCode(_ code: String) async {
+    // MARK: - Shared helpers
+
+    fileprivate func resumeRenewals(with token: String) {
+        let conts = renewalContinuations; renewalContinuations = []
+        conts.forEach { $0.resume(returning: token) }
+    }
+
+    fileprivate func failRenewals(with error: Error) {
+        let conts = renewalContinuations; renewalContinuations = []
+        conts.forEach { $0.resume(throwing: error) }
+    }
+}
+
+// MARK: - SDK delegate conformance
+
+#if canImport(SpotifyiOS)
+extension SpotifyAuthManager: SPTSessionManagerDelegate {
+
+    func sessionManager(manager: SPTSessionManager, didInitiate session: SPTSession) {
+        persist(session)
+        accessToken = session.accessToken
+        expiresAt = session.expirationDate
+        isLoggedIn = true
+        resumeRenewals(with: session.accessToken)
+    }
+
+    func sessionManager(manager: SPTSessionManager, didFailWith error: Error) {
+        lastError = error.localizedDescription
+        failRenewals(with: error)
+    }
+
+    func sessionManager(manager: SPTSessionManager, didRenew session: SPTSession) {
+        persist(session)
+        accessToken = session.accessToken
+        expiresAt = session.expirationDate
+        resumeRenewals(with: session.accessToken)
+    }
+
+    private func persist(_ session: SPTSession) {
+        let data = try? NSKeyedArchiver.archivedData(withRootObject: session, requiringSecureCoding: true)
+        UserDefaults.standard.set(data, forKey: "spotify.session")
+    }
+}
+
+// MARK: - No-SDK helpers
+
+#else
+
+extension SpotifyAuthManager: ASWebAuthenticationPresentationContextProviding {
+
+    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive }?
+            .keyWindow ?? ASPresentationAnchor()
+    }
+}
+
+extension SpotifyAuthManager {
+
+    fileprivate func exchangeCode(_ code: String) async {
         guard let verifier = codeVerifier else { return }
         var request = URLRequest(url: SpotifyConfig.tokenURL)
         request.httpMethod = "POST"
@@ -115,7 +243,6 @@ final class SpotifyAuthManager: NSObject, ObservableObject {
             "redirect_uri": SpotifyConfig.redirectURI,
             "code_verifier": verifier,
         ])
-
         do {
             try await performTokenRequest(request)
             await MainActor.run { self.isLoggedIn = true }
@@ -124,15 +251,15 @@ final class SpotifyAuthManager: NSObject, ObservableObject {
         }
     }
 
-    private func refreshAccessToken() async throws {
-        guard let refreshToken else { throw SpotifyError.notAuthenticated }
+    fileprivate func refreshAccessToken() async throws {
+        guard let rt = refreshToken else { throw SpotifyError.notAuthenticated }
         var request = URLRequest(url: SpotifyConfig.tokenURL)
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.httpBody = formBody([
             "client_id": SpotifyConfig.clientID,
             "grant_type": "refresh_token",
-            "refresh_token": refreshToken,
+            "refresh_token": rt,
         ])
         try await performTokenRequest(request)
     }
@@ -141,34 +268,28 @@ final class SpotifyAuthManager: NSObject, ObservableObject {
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
               let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            // Refresh token kan være ugyldigt – tving nyt login.
             await MainActor.run { self.logout() }
             throw SpotifyError.tokenRequestFailed
         }
-
         let newAccess = json["access_token"] as? String
         let expiresIn = (json["expires_in"] as? Double) ?? 3600
         let newRefresh = json["refresh_token"] as? String
-
         await MainActor.run {
             self.accessToken = newAccess
             self.expiresAt = Date().addingTimeInterval(expiresIn)
-            if let newRefresh {
-                self.refreshToken = newRefresh
-                Keychain.set(newRefresh, for: self.tokenKey)
+            if let t = newAccess { self.resumeRenewals(with: t) }
+            if let r = newRefresh {
+                self.refreshToken = r
+                Keychain.set(r, for: self.refreshTokenKey)
             }
         }
     }
 
-    // MARK: - Helpers
-
     private func formBody(_ params: [String: String]) -> Data {
-        params.map { key, value in
-            let v = value.addingPercentEncoding(withAllowedCharacters: .urlQueryValueAllowed) ?? value
-            return "\(key)=\(v)"
-        }
-        .joined(separator: "&")
-        .data(using: .utf8)!
+        params.map { k, v in
+            let enc = v.addingPercentEncoding(withAllowedCharacters: .urlQueryValueAllowed) ?? v
+            return "\(k)=\(enc)"
+        }.joined(separator: "&").data(using: .utf8)!
     }
 
     private static func randomCodeVerifier() -> String {
@@ -178,23 +299,30 @@ final class SpotifyAuthManager: NSObject, ObservableObject {
     }
 
     private static func codeChallenge(for verifier: String) -> String {
-        let digest = SHA256.hash(data: Data(verifier.utf8))
-        return Data(digest).base64URLEncodedString()
+        Data(SHA256.hash(data: Data(verifier.utf8))).base64URLEncodedString()
     }
 }
 
-// MARK: - Presentation anchor
-
-extension SpotifyAuthManager: ASWebAuthenticationPresentationContextProviding {
-    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
-        let scene = UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .first { $0.activationState == .foregroundActive }
-        return scene?.keyWindow ?? ASPresentationAnchor()
+extension Data {
+    func base64URLEncodedString() -> String {
+        base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
     }
 }
 
-// MARK: - Fejl
+extension CharacterSet {
+    static let urlQueryValueAllowed: CharacterSet = {
+        var s = CharacterSet.alphanumerics
+        s.insert(charactersIn: "-._~")
+        return s
+    }()
+}
+
+#endif
+
+// MARK: - Shared error type
 
 enum SpotifyError: LocalizedError {
     case notAuthenticated
@@ -208,23 +336,4 @@ enum SpotifyError: LocalizedError {
         case .requestFailed(let code): return "Spotify-forespørgsel fejlede (HTTP \(code))."
         }
     }
-}
-
-// MARK: - Base64 URL-safe
-
-extension Data {
-    func base64URLEncodedString() -> String {
-        base64EncodedString()
-            .replacingOccurrences(of: "+", with: "-")
-            .replacingOccurrences(of: "/", with: "_")
-            .replacingOccurrences(of: "=", with: "")
-    }
-}
-
-extension CharacterSet {
-    static let urlQueryValueAllowed: CharacterSet = {
-        var set = CharacterSet.alphanumerics
-        set.insert(charactersIn: "-._~")
-        return set
-    }()
 }
