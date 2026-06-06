@@ -22,16 +22,18 @@ Log ind med Spotify, vælg en sang fra dit bibliotek, og ram tilene i takt med m
 
 ## 🌐 Web-udgave (test nu på iPad uden Xcode)
 
-I mappen `docs/` ligger en **selvstændig web-udgave** du kan spille direkte i Safari –
+I roden ligger `index.html` – en **selvstændig web-udgave** du kan spille direkte i Safari –
 god til at teste spillet, hold-tiles og animationerne mens du venter på at være ved din Mac.
 
 **Sådan får du den online (gratis, via GitHub Pages – kan gøres fra iPad'en):**
 1. Åbn dette repo på github.com → **Settings → Pages**.
 2. Under "Build and deployment": Source = **Deploy from a branch**.
-3. Vælg branch `claude/musik-tiles-ios-spotify-05zjO` og mappe **`/docs`** → **Save**.
+3. Vælg branch `claude/musik-tiles-ios-spotify-05zjO` og mappe **`/ (root)`** → **Save**.
 4. Efter ~1 minut er spillet på:
    `https://cnbjornsen.github.io/Tiles-music-iOS/`
    Åbn den i Safari og tryk evt. "Føj til hjemmeskærm" for fuldskærm.
+
+   > `index.html` vinder over `README.md`, så Pages viser nu spillet i stedet for denne fil.
 
 **Hvad virker i browseren:**
 - ✅ **Demo-tilstand** – spil med det samme med syntetisk musik (intet login).
