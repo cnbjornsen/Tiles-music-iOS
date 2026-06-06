@@ -157,6 +157,7 @@
       </div>
       <div class="diffs" id="diffs"></div>
       <div class="record" id="setup-record"></div>
+      <div class="muted" id="setup-note" style="max-width:320px"></div>
       <button class="primary" id="btn-play">▶︎ Spil</button>
     </div>
   </section>
@@ -505,7 +506,10 @@ let game = null;
 
 $('#sp-redirect').textContent = Spotify.redirect;
 $('#sp-client').value = Spotify.clientId;
-$('#sp-client').addEventListener('input', e=>{ Spotify.clientId=e.target.value.trim(); });
+$('#sp-client').addEventListener('input', e=>{
+  Spotify.clientId = e.target.value.trim();
+  localStorage.setItem('sp_client_id', Spotify.clientId); // gem straks så det huskes næste gang
+});
 
 function refreshLoginUI(){
   const inn = Spotify.loggedIn();
@@ -522,7 +526,7 @@ $('#btn-library').onclick = ()=>{ show('library'); loadLibrary('top'); };
 $('#lib-back').onclick = ()=>show('home');
 $('#setup-back').onclick = ()=>show(current?'library':'home');
 $('#btn-home').onclick = ()=>{ show('home'); refreshLoginUI(); };
-$('#quit').onclick = ()=>{ if(game){ game.stop(); } audio.stop(); show('home'); };
+$('#quit').onclick = ()=>{ if(game){ game.stop(); } audio.stop(); stopPreview(); show('home'); };
 
 document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{
   document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('sel',x===b));
@@ -543,7 +547,8 @@ async function loadLibrary(src){
 function trackObj(t){ if(!t) return null; return { id:t.id, name:t.name,
   artist:(t.artists||[]).map(a=>a.name).join(', '),
   artwork:(t.album&&t.album.images&&t.album.images[0])?t.album.images[0].url:null,
-  duration:(t.duration_ms||180000)/1000 }; }
+  duration:(t.duration_ms||180000)/1000,
+  preview:t.preview_url||null }; }
 function artEl(url, fallback){ if(url){ const i=document.createElement('img'); i.className='art'; i.src=url; return i; }
   const d=document.createElement('div'); d.className='art'; d.textContent=fallback||'🎵'; return d; }
 function trackRow(t){
@@ -575,6 +580,10 @@ function openSetup(){
   const art=$('#setup-art'); art.textContent = current?'':'🎵';
   art.style.backgroundImage = (current&&current.artwork)?`url(${current.artwork})`:'';
   art.style.backgroundSize='cover';
+  const note=$('#setup-note');
+  if(!current) note.textContent='Syntetisk demo-beat';
+  else if(current.preview) note.textContent='▶︎ Spiller et 30-sek. uddrag fra Spotify';
+  else note.textContent='Intet lyd-uddrag for denne sang – spiller syntetisk beat i sangens tempo.';
   renderDiffs();
   show('setup');
 }
@@ -596,12 +605,21 @@ function updateRecord(){
 
 $('#btn-play').onclick = startGame;
 
+let previewAudio = null;
+function stopPreview(){ if(previewAudio){ previewAudio.pause(); previewAudio.src=''; previewAudio=null; } }
+
 async function startGame(){
   await audio.ensure(); // user-gesture: tillad lyd
+  stopPreview();
   const id = current?current.id:'demo';
-  const duration = current?current.duration:90;
+  let duration = current?current.duration:90;
   let bpm = 120;
   if(current){ const t=await Spotify.tempo(id); if(t) bpm=t; }
+
+  // Hvis sangen har et 30-sek. uddrag, spiller vi den rigtige lyd og synker spillet til den.
+  const usePreview = !!(current && current.preview);
+  if(usePreview){ duration = 30; previewAudio = new window.Audio(current.preview); previewAudio.preload='auto'; }
+
   const beatmap = generateBeatmap(bpm, duration, DIFF[diffKey], fnv1a(id+diffKey));
 
   show('game');
@@ -615,12 +633,25 @@ async function startGame(){
   game.onEnd = onGameEnd;
   game.updateHud();
 
-  const clock = audio.startBacking(bpm, duration);
-  game.start(clock);
+  if(usePreview){
+    // Spil-uret følger uddragets afspilningsposition.
+    previewAudio.onended = ()=>{ if(game && !game.finished) game.end(true); };
+    try {
+      await previewAudio.play();
+      game.start(()=> previewAudio.currentTime);
+    } catch(err){
+      // Browseren ville ikke afspille uddraget – fald tilbage til syntetisk beat.
+      stopPreview();
+      game.start(audio.startBacking(bpm, duration));
+    }
+  } else {
+    game.start(audio.startBacking(bpm, duration));
+  }
 }
 
 function onGameEnd(win){
   audio.stop();
+  stopPreview();
   const id=current?current.id:'demo';
   const rec=HS.submit(game.score, id, diffKey);
   $('#res-icon').textContent = win?'🏆':'🏁';
