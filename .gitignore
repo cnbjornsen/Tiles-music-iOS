@@ -1,0 +1,24 @@
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+*.xcscmblueprint
+xcuserdata/
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# macOS
+.DS_Store
+
+# Spotify SDK (tilføjes lokalt – se README)
+Frameworks/SpotifyiOS.xcframework/
+
+# Hemmeligheder
+Secrets.xcconfig
