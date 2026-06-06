@@ -137,38 +137,44 @@ extension PlaybackController: SPTAppRemoteDelegate, SPTAppRemotePlayerStateDeleg
 
     // MARK: SPTAppRemoteDelegate
 
-    func appRemoteDidEstablishConnection(_ appRemote: SPTAppRemote) {
-        appRemote.playerAPI?.delegate = self
-        appRemote.playerAPI?.subscribe(toPlayerState: nil)
-        // Spillet kan være slut/afbrudt før forbindelsen nåede at blive klar –
-        // pause i så fald med det samme i stedet for at starte musikken.
-        if wantsPause {
-            appRemote.playerAPI?.pause(nil)
-            wantsPause = false
-            return
-        }
-        if let uri = pendingURI {
-            appRemote.playerAPI?.play(uri, callback: { [weak self] _, _ in
-                Task { @MainActor in
-                    self?.status = .playing
-                    self?.onPlaybackStarted?()
-                }
-            })
+    nonisolated func appRemoteDidEstablishConnection(_ appRemote: SPTAppRemote) {
+        MainActor.assumeIsolated { [self] in
+            appRemote.playerAPI?.delegate = self
+            appRemote.playerAPI?.subscribe(toPlayerState: nil)
+            if wantsPause {
+                appRemote.playerAPI?.pause(nil)
+                wantsPause = false
+                return
+            }
+            if let uri = pendingURI {
+                appRemote.playerAPI?.play(uri, callback: { [weak self] _, _ in
+                    Task { @MainActor in
+                        self?.status = .playing
+                        self?.onPlaybackStarted?()
+                    }
+                })
+            }
         }
     }
 
-    func appRemote(_ appRemote: SPTAppRemote, didFailConnectionAttemptWithError error: Error?) {
-        status = .failed(error?.localizedDescription ?? "Kunne ikke forbinde til Spotify.")
+    nonisolated func appRemote(_ appRemote: SPTAppRemote, didFailConnectionAttemptWithError error: Error?) {
+        MainActor.assumeIsolated { [self] in
+            status = .failed(error?.localizedDescription ?? "Kunne ikke forbinde til Spotify.")
+        }
     }
 
-    func appRemote(_ appRemote: SPTAppRemote, didDisconnectWithError error: Error?) {
-        status = .disconnected
+    nonisolated func appRemote(_ appRemote: SPTAppRemote, didDisconnectWithError error: Error?) {
+        MainActor.assumeIsolated { [self] in
+            status = .disconnected
+        }
     }
 
     // MARK: SPTAppRemotePlayerStateDelegate
 
-    func playerStateDidChange(_ playerState: SPTAppRemotePlayerState) {
-        status = playerState.isPaused ? .paused : .playing
+    nonisolated func playerStateDidChange(_ playerState: SPTAppRemotePlayerState) {
+        MainActor.assumeIsolated { [self] in
+            status = playerState.isPaused ? .paused : .playing
+        }
     }
 }
 

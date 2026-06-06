@@ -187,27 +187,32 @@ final class SpotifyAuthManager: NSObject, ObservableObject {
 // MARK: - SDK delegate conformance
 
 #if canImport(SpotifyiOS)
-@MainActor
 extension SpotifyAuthManager: SPTSessionManagerDelegate {
 
-    func sessionManager(manager: SPTSessionManager, didInitiate session: SPTSession) {
-        persist(session)
-        accessToken = session.accessToken
-        expiresAt = session.expirationDate
-        isLoggedIn = true
-        resumeRenewals(with: session.accessToken)
+    nonisolated func sessionManager(manager: SPTSessionManager, didInitiate session: SPTSession) {
+        MainActor.assumeIsolated { [self] in
+            persist(session)
+            accessToken = session.accessToken
+            expiresAt = session.expirationDate
+            isLoggedIn = true
+            resumeRenewals(with: session.accessToken)
+        }
     }
 
-    func sessionManager(manager: SPTSessionManager, didFailWith error: Error) {
-        lastError = error.localizedDescription
-        failRenewals(with: error)
+    nonisolated func sessionManager(manager: SPTSessionManager, didFailWith error: Error) {
+        MainActor.assumeIsolated { [self] in
+            lastError = error.localizedDescription
+            failRenewals(with: error)
+        }
     }
 
-    func sessionManager(manager: SPTSessionManager, didRenew session: SPTSession) {
-        persist(session)
-        accessToken = session.accessToken
-        expiresAt = session.expirationDate
-        resumeRenewals(with: session.accessToken)
+    nonisolated func sessionManager(manager: SPTSessionManager, didRenew session: SPTSession) {
+        MainActor.assumeIsolated { [self] in
+            persist(session)
+            accessToken = session.accessToken
+            expiresAt = session.expirationDate
+            resumeRenewals(with: session.accessToken)
+        }
     }
 
     private func persist(_ session: SPTSession) {
