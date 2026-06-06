@@ -26,6 +26,9 @@ final class GameEngine: NSObject, ObservableObject {
     /// Kortvarige visuelle effekter ved hit (bruges til "pop"-animationen).
     private(set) var hitEffects: [HitEffect] = []
 
+    /// Svævende "+point"-tekster der vises kortvarigt ved hvert hit.
+    private(set) var scorePopups: [ScorePopup] = []
+
     struct HitEffect: Identifiable {
         let id = UUID()
         let lane: Int
@@ -33,8 +36,17 @@ final class GameEngine: NSObject, ObservableObject {
         let perfect: Bool
     }
 
+    struct ScorePopup: Identifiable {
+        let id = UUID()
+        let lane: Int
+        let time: Double
+        let points: Int
+        let perfect: Bool
+    }
+
     static let startingLives = 5
     private let effectLifetime = 0.35
+    private let popupLifetime = 0.8
 
     // Tidsvinduer for at ramme en tile (sekunder)
     private let perfectWindow = 0.15
@@ -57,12 +69,17 @@ final class GameEngine: NSObject, ObservableObject {
         isFinished = false; didWin = false; lastJudgement = nil
         currentTime = 0
         hitEffects = []
+        scorePopups = []
+        // Nulstil alle tiles til pending, så et replay starter forfra.
+        for index in tiles.indices { tiles[index].state = .pending }
     }
 
-    /// Starter uret. Kald når Spotify rent faktisk begynder at spille.
-    func startClock() {
+    /// Starter uret. Kald når musikken rent faktisk begynder at spille.
+    /// `offset` er sangens aktuelle position (sek.) så uret kan synkroniseres
+    /// efter en nedtælling hvor musikken allerede er begyndt.
+    func startClock(at offset: Double = 0) {
         guard displayLink == nil else { return }
-        clockStart = CACurrentMediaTime()
+        clockStart = CACurrentMediaTime() - offset
         let link = CADisplayLink(target: self, selector: #selector(tick))
         link.add(to: .main, forMode: .common)
         displayLink = link
@@ -107,8 +124,9 @@ final class GameEngine: NSObject, ObservableObject {
                 break
             }
         }
-        // Ryd gamle hit-effekter.
+        // Ryd gamle hit-effekter og score-popups.
         hitEffects.removeAll { currentTime - $0.time > effectLifetime }
+        scorePopups.removeAll { currentTime - $0.time > popupLifetime }
     }
 
     // MARK: - Input (tryk ned / slip)
@@ -156,9 +174,11 @@ final class GameEngine: NSObject, ObservableObject {
         maxCombo = max(maxCombo, combo)
         let base = perfect ? 100 : 50
         let multiplier = 1 + combo / 10            // combo giver bonus
-        score += base * multiplier
+        let gained = base * multiplier
+        score += gained
         lastJudgement = perfect ? .perfect : .good
         hitEffects.append(HitEffect(lane: lane, time: currentTime, perfect: perfect))
+        scorePopups.append(ScorePopup(lane: lane, time: currentTime, points: gained, perfect: perfect))
         onHit?()
     }
 

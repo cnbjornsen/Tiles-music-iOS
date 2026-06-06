@@ -27,4 +27,11 @@ protocol GamePlayback: AnyObject {
     func begin()
     /// Pause / stop afspilning.
     func pause()
+    /// Aktuel afspilningsposition i sekunder (bruges til at synkronisere uret efter
+    /// nedtælling). Returnér nil hvis kilden ikke kan oplyse positionen.
+    func position() -> Double?
+}
+
+extension GamePlayback {
+    func position() -> Double? { nil }
 }

@@ -16,6 +16,11 @@ struct GameView: View {
     @State private var comboScale: CGFloat = 1
     @State private var missFlash = false
 
+    // Nedtælling før spillet går i gang
+    @State private var countdown: Int? = nil      // 3, 2, 1, 0 (=Go!), derefter nil
+    @State private var countdownScale: CGFloat = 1
+    @State private var playBeganAt: Date? = nil
+
     @Environment(\.dismiss) private var dismiss
 
     private let laneColors: [Color] = [.cyan, .purple, .pink, .orange]
@@ -54,9 +59,13 @@ struct GameView: View {
                     }
                 }
 
+                scorePopups(laneWidth: laneWidth, hitLineY: hitLineY)
+
                 hud
 
                 missVignette
+
+                countdownOverlay
             }
         }
         .navigationBarBackButtonHidden(true)
@@ -143,6 +152,46 @@ struct GameView: View {
             }
         }
         .allowsHitTesting(false)
+    }
+
+    // MARK: - Svævende "+point" ved hvert hit
+
+    private func scorePopups(laneWidth: CGFloat, hitLineY: CGFloat) -> some View {
+        let now = engine.currentTime
+        let popups = engine.scorePopups
+        return ZStack {
+            ForEach(popups) { popup in
+                let progress = min(max((now - popup.time) / 0.8, 0), 1)
+                Text("+\(popup.points)")
+                    .font(.system(size: 26, weight: .heavy, design: .rounded))
+                    .foregroundStyle(popup.perfect ? .white : laneColors[popup.lane])
+                    .shadow(color: .black.opacity(0.5), radius: 3)
+                    .position(x: laneWidth * (CGFloat(popup.lane) + 0.5),
+                              y: hitLineY - 40 - CGFloat(progress) * 70)
+                    .opacity(1 - progress)
+                    .scaleEffect(1 + CGFloat(1 - progress) * 0.3)
+            }
+        }
+        .allowsHitTesting(false)
+    }
+
+    // MARK: - Nedtælling
+
+    @ViewBuilder
+    private var countdownOverlay: some View {
+        if let countdown {
+            ZStack {
+                Color.black.opacity(0.45).ignoresSafeArea()
+                Text(countdown == 0 ? "Go!" : "\(countdown)")
+                    .font(.system(size: 130, weight: .black, design: .rounded))
+                    .foregroundStyle(LinearGradient(colors: [.cyan, .purple, .pink],
+                                                    startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .scaleEffect(countdownScale)
+                    .shadow(color: .purple.opacity(0.7), radius: 20)
+            }
+            .allowsHitTesting(false)
+            .transition(.opacity)
+        }
     }
 
     /// Tegner en hold-tile som en aflang bjælke. Mens den holdes, "spises" den
@@ -292,11 +341,39 @@ struct GameView: View {
     // MARK: - Livscyklus
 
     private func startGame() {
+        engine.stop()
         engine.load(beatmap: beatmap, difficulty: difficulty, onHit: nil)
-        playback.onPlaybackStarted = {
-            engine.startClock()
-        }
+        // Musikken vækkes med det samme, så der er buffer mens nedtællingen kører.
+        playback.onPlaybackStarted = nil
+        playBeganAt = Date()
         playback.begin()
+        runCountdown()
+    }
+
+    /// Animeret 3-2-1-Go nedtælling. Når den er færdig, startes uret synkroniseret
+    /// til musikkens faktiske position (så tiles passer med sangen).
+    private func runCountdown() {
+        countdown = 3
+        bumpCountdown()
+        Task { @MainActor in
+            for value in [2, 1, 0] {
+                try? await Task.sleep(nanoseconds: 700_000_000)
+                countdown = value
+                bumpCountdown()
+            }
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            withAnimation(.easeOut(duration: 0.25)) { countdown = nil }
+            // Start uret synkroniseret til hvor musikken er nået til. Lokal afspilning
+            // kender positionen præcist; ellers bruger vi den forløbne tid som estimat.
+            let elapsed = playBeganAt.map { max(0, Date().timeIntervalSince($0)) } ?? 0
+            let offset = playback.position() ?? elapsed
+            engine.startClock(at: offset)
+        }
+    }
+
+    private func bumpCountdown() {
+        countdownScale = 1.6
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.5)) { countdownScale = 1 }
     }
 
     private func teardown() {

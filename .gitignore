@@ -17,8 +17,5 @@ xcuserdata/
 # macOS
 .DS_Store
 
-# Spotify SDK (tilføjes lokalt – se README)
-Frameworks/SpotifyiOS.xcframework/
-
 # Hemmeligheder
 Secrets.xcconfig

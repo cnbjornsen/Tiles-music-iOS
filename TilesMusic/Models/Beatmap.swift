@@ -75,6 +75,15 @@ enum Difficulty: String, CaseIterable, Identifiable {
         case .hard: return 0.24
         }
     }
+
+    /// Sandsynlighed (0–1) for at to tiles falder samtidig (akkord – fx to baner ved siden af hinanden).
+    var chordChance: Double {
+        switch self {
+        case .easy: return 0.0
+        case .medium: return 0.12
+        case .hard: return 0.28
+        }
+    }
 }
 
 /// Genererer et beatmap proceduremæssigt ud fra tempo (BPM) og varighed.
@@ -120,6 +129,16 @@ enum BeatmapGenerator {
             }
 
             tiles.append(Tile(lane: lane, time: t))
+
+            // Indimellem en akkord: en ekstra tap-tile i en anden bane samtidig.
+            let chordRoll = Double(rng.next() % 1000) / 1000.0
+            if chordRoll < difficulty.chordChance {
+                var second = Int(rng.next() % UInt64(kLaneCount))
+                if second == lane { second = (second + 1) % kLaneCount }
+                tiles.append(Tile(lane: second, time: t))
+                lastLane = second
+            }
+
             t += interval
         }
 

@@ -110,13 +110,13 @@ open TilesMusic.xcodeproj
 - Ret evt. **Bundle Identifier** hvis `dk.grafikr.TilesMusic` allerede er taget –
   husk så at opdatere det samme sted i Spotify-dashboardet.
 
-### 4. (Valgfrit men anbefalet) Tilføj Spotify iOS SDK for rigtig lyd
-1. Hent **SpotifyiOS.xcframework** fra
-   <https://github.com/spotify/ios-sdk/releases>.
-2. Træk `SpotifyiOS.xcframework` ind i projektet i Xcode.
-3. Under target → **General → Frameworks, Libraries, and Embedded Content**:
-   sæt den til **Embed & Sign**.
-4. Byg igen. `#if canImport(SpotifyiOS)` aktiverer nu rigtig afspilning.
+### 4. Spotify iOS SDK (allerede inkluderet)
+`SpotifyiOS.xcframework` ligger nu i mappen `Frameworks/` og er allerede linket og
+embeddet i Xcode-projektet (Embed & Sign). Du behøver altså ikke gøre noget –
+`#if canImport(SpotifyiOS)` aktiverer rigtig Spotify-afspilning automatisk.
+
+> Kræver **Spotify Premium** og at **Spotify-appen er installeret** på iPad'en.
+> Husk også at tilføje redirect-URI'en `tilesmusic://callback` i dit Spotify-dashboard.
 
 ### 5. Kør på din iPad
 - Forbind din iPad via kabel (eller trådløst), vælg den som destination.
