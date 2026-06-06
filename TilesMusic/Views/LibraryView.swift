@@ -4,7 +4,6 @@ import SwiftUI
 struct LibraryView: View {
     let api: SpotifyAPI
     @ObservedObject var playback: PlaybackController
-    @EnvironmentObject private var auth: SpotifyAuthManager
 
     enum Source: String, CaseIterable, Identifiable {
         case top = "Mest spillede"
@@ -20,24 +19,18 @@ struct LibraryView: View {
     @State private var errorText: String?
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                Picker("Kilde", selection: $source) {
-                    ForEach(Source.allCases) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .padding()
+        VStack(spacing: 0) {
+            Picker("Kilde", selection: $source) {
+                ForEach(Source.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .padding()
 
-                content
-            }
-            .navigationTitle("Vælg en sang")
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Log ud") { auth.logout() }
-                }
-            }
-            .task(id: source) { await reload() }
+            content
         }
+        .navigationTitle("Vælg en sang")
+        .navigationBarTitleDisplayMode(.inline)
+        .task(id: source) { await reload() }
     }
 
     @ViewBuilder

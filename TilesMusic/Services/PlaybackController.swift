@@ -22,6 +22,7 @@ final class PlaybackController: NSObject, ObservableObject, GamePlayback {
     private let auth: SpotifyAuthManager
     private var pendingURI: String?
     private var queuedTrack: Track?
+    private var wantsPause = false
 
     init(auth: SpotifyAuthManager) {
         self.auth = auth
@@ -84,12 +85,23 @@ extension PlaybackController: SPTAppRemoteDelegate, SPTAppRemotePlayerStateDeleg
 
     func startPlayback(uri: String, accessToken: String?) {
         pendingURI = uri
-        status = .connecting
+        wantsPause = false
         if let accessToken {
             appRemote.connectionParameters.accessToken = accessToken
         }
-        // Vækker Spotify-appen, starter sangen og kobler App Remote op.
-        appRemote.authorizeAndPlayURI(uri)
+        // Er vi allerede forbundet (fx replay eller ny runde med samme sang),
+        // genstarter vi sangen fra begyndelsen via playerAPI i stedet for at
+        // skifte til Spotify-appen igen.
+        if appRemote.isConnected, let playerAPI = appRemote.playerAPI {
+            status = .playing
+            playerAPI.play(uri, callback: { [weak self] _, _ in
+                Task { @MainActor in self?.onPlaybackStarted?() }
+            })
+        } else {
+            // Første gang: vækker Spotify-appen, starter sangen og kobler App Remote op.
+            status = .connecting
+            appRemote.authorizeAndPlayURI(uri)
+        }
     }
 
     func handleAuthCallback(_ url: URL) -> Bool {
@@ -102,11 +114,24 @@ extension PlaybackController: SPTAppRemoteDelegate, SPTAppRemotePlayerStateDeleg
         return false
     }
 
-    func pausePlayback() { appRemote.playerAPI?.pause(nil) }
+    func pausePlayback() {
+        // Hvis App Remote endnu ikke er forbundet, husk ønsket og pause når
+        // forbindelsen er etableret, så musikken ikke fortsætter efter spillet.
+        if appRemote.isConnected, let playerAPI = appRemote.playerAPI {
+            playerAPI.pause(nil)
+            wantsPause = false
+        } else {
+            wantsPause = true
+        }
+    }
     func resumePlayback() { appRemote.playerAPI?.resume(nil) }
 
     func teardown() {
-        if appRemote.isConnected { appRemote.disconnect() }
+        if appRemote.isConnected {
+            appRemote.playerAPI?.pause(nil)
+            appRemote.disconnect()
+        }
+        wantsPause = false
         status = .disconnected
     }
 
@@ -115,6 +140,13 @@ extension PlaybackController: SPTAppRemoteDelegate, SPTAppRemotePlayerStateDeleg
     func appRemoteDidEstablishConnection(_ appRemote: SPTAppRemote) {
         appRemote.playerAPI?.delegate = self
         appRemote.playerAPI?.subscribe(toPlayerState: nil)
+        // Spillet kan være slut/afbrudt før forbindelsen nåede at blive klar –
+        // pause i så fald med det samme i stedet for at starte musikken.
+        if wantsPause {
+            appRemote.playerAPI?.pause(nil)
+            wantsPause = false
+            return
+        }
         if let uri = pendingURI {
             appRemote.playerAPI?.play(uri, callback: { [weak self] _, _ in
                 Task { @MainActor in

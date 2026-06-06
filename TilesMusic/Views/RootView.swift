@@ -15,7 +15,7 @@ struct RootView: View {
         Group {
             if auth.isLoggedIn {
                 if let api {
-                    LibraryView(api: api, playback: playback)
+                    HomeView(api: api, playback: playback)
                 } else {
                     ProgressView().onAppear { api = SpotifyAPI(auth: auth) }
                 }

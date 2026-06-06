@@ -8,6 +8,7 @@ struct GameView: View {
     let playback: any GamePlayback
 
     @StateObject private var engine = GameEngine()
+    @State private var sound = SoundEngine()
     @State private var showResult = false
     @State private var record = HighscoreStore.Result(best: 0, isNewRecord: false)
 
@@ -20,6 +21,7 @@ struct GameView: View {
     @State private var countdown: Int? = nil      // 3, 2, 1, 0 (=Go!), derefter nil
     @State private var countdownScale: CGFloat = 1
     @State private var playBeganAt: Date? = nil
+    @State private var deathFlash = false
 
     @Environment(\.dismiss) private var dismiss
 
@@ -65,6 +67,8 @@ struct GameView: View {
 
                 missVignette
 
+                deathOverlay
+
                 countdownOverlay
             }
         }
@@ -72,11 +76,7 @@ struct GameView: View {
         .onChange(of: engine.combo) { _, _ in pulseCombo() }
         .onChange(of: engine.lives) { old, new in if new < old { flashMiss() } }
         .onChange(of: engine.isFinished) { _, finished in
-            if finished {
-                teardown()
-                record = HighscoreStore.submit(score: engine.score, trackID: track.id, difficulty: difficulty)
-                showResult = true
-            }
+            if finished { handleFinish() }
         }
         .fullScreenCover(isPresented: $showResult) {
             ResultView(track: track, score: engine.score, maxCombo: engine.maxCombo,
@@ -316,14 +316,29 @@ struct GameView: View {
         .allowsHitTesting(false)
     }
 
-    /// Rød kant-flash når man misser.
+    /// Rød "blod"-bleed der vælder ind fra kanterne når man mister et liv.
     private var missVignette: some View {
-        Rectangle()
-            .stroke(Color.red, lineWidth: 14)
-            .blur(radius: 12)
+        RadialGradient(colors: [.clear, .clear, .red.opacity(0.9)],
+                       center: .center, startRadius: 120, endRadius: 620)
             .ignoresSafeArea()
-            .opacity(missFlash ? 0.8 : 0)
+            .opacity(missFlash ? 1 : 0)
             .allowsHitTesting(false)
+    }
+
+    /// Kraftig rød fuldskærms-flash + "Game Over" når man dør.
+    @ViewBuilder
+    private var deathOverlay: some View {
+        if deathFlash {
+            ZStack {
+                Color.red.opacity(0.5).ignoresSafeArea()
+                Text("Game Over")
+                    .font(.system(size: 56, weight: .black, design: .rounded))
+                    .foregroundStyle(.white)
+                    .shadow(color: .black.opacity(0.6), radius: 10)
+            }
+            .transition(.opacity)
+            .allowsHitTesting(false)
+        }
     }
 
     // MARK: - Animationshjælpere
@@ -334,14 +349,39 @@ struct GameView: View {
     }
 
     private func flashMiss() {
+        // Spil ikke "mistet liv"-lyden hvis det var det dødelige tab (så overtager
+        // game over-lyden i stedet).
+        if engine.lives > 0 { sound.playLifeLost() }
         missFlash = true
-        withAnimation(.easeOut(duration: 0.4)) { missFlash = false }
+        withAnimation(.easeOut(duration: 0.45)) { missFlash = false }
+    }
+
+    /// Kaldes når spillet er slut (vundet eller død). Stopper musikken, giver
+    /// feedback ved død og viser resultatskærmen.
+    private func handleFinish() {
+        teardown()
+        record = HighscoreStore.submit(score: engine.score, track: track, difficulty: difficulty)
+
+        if engine.didWin {
+            showResult = true
+        } else {
+            // Død: lyd + rød flash, kort pause, derefter resultat.
+            sound.playGameOver()
+            withAnimation(.easeOut(duration: 0.2)) { deathFlash = true }
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 1_300_000_000)
+                withAnimation(.easeOut(duration: 0.3)) { deathFlash = false }
+                showResult = true
+            }
+        }
     }
 
     // MARK: - Livscyklus
 
     private func startGame() {
         engine.stop()
+        deathFlash = false
+        sound.start()
         engine.load(beatmap: beatmap, difficulty: difficulty, onHit: nil)
         // Musikken vækkes med det samme, så der er buffer mens nedtællingen kører.
         playback.onPlaybackStarted = nil
@@ -378,6 +418,7 @@ struct GameView: View {
 
     private func teardown() {
         engine.stop()
+        sound.stop()
         playback.pause()
         playback.onPlaybackStarted = nil
     }
