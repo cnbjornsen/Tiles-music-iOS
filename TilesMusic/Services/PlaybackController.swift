@@ -57,9 +57,8 @@ final class PlaybackController: NSObject, ObservableObject, GamePlayback {
 // MARK: - Implementering MED Spotify SDK
 
 #if canImport(SpotifyiOS)
-import SpotifyiOS
+@preconcurrency import SpotifyiOS
 
-@preconcurrency
 extension PlaybackController: SPTAppRemoteDelegate, SPTAppRemotePlayerStateDelegate {
 
     private static var appRemoteKey = 0

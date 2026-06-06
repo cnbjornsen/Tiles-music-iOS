@@ -2,7 +2,7 @@ import Foundation
 import UIKit
 
 #if canImport(SpotifyiOS)
-import SpotifyiOS
+@preconcurrency import SpotifyiOS
 #else
 import AuthenticationServices
 import CryptoKit
@@ -187,7 +187,7 @@ final class SpotifyAuthManager: NSObject, ObservableObject {
 // MARK: - SDK delegate conformance
 
 #if canImport(SpotifyiOS)
-@preconcurrency @MainActor
+@MainActor
 extension SpotifyAuthManager: SPTSessionManagerDelegate {
 
     func sessionManager(manager: SPTSessionManager, didInitiate session: SPTSession) {
