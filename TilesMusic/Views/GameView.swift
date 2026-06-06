@@ -8,7 +8,6 @@ struct GameView: View {
     let playback: any GamePlayback
 
     @StateObject private var engine = GameEngine()
-    @State private var sound = SoundEngine()
     @State private var showResult = false
     @State private var record = HighscoreStore.Result(best: 0, isNewRecord: false)
 
@@ -20,7 +19,7 @@ struct GameView: View {
     @Environment(\.dismiss) private var dismiss
 
     private let laneColors: [Color] = [.cyan, .purple, .pink, .orange]
-    private let hitLineInset: CGFloat = 130
+    private let hitLineInset: CGFloat = 200
     private let tileAspect: CGFloat = 1.4
 
     var body: some View {
@@ -288,10 +287,7 @@ struct GameView: View {
     // MARK: - Livscyklus
 
     private func startGame() {
-        sound.start()
-        engine.load(beatmap: beatmap, difficulty: difficulty) {
-            sound.playHit()
-        }
+        engine.load(beatmap: beatmap, difficulty: difficulty, onHit: nil)
         playback.onPlaybackStarted = {
             engine.startClock()
         }
@@ -300,7 +296,6 @@ struct GameView: View {
 
     private func teardown() {
         engine.stop()
-        sound.stop()
         playback.pause()
         playback.onPlaybackStarted = nil
     }

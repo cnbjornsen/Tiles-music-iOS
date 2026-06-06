@@ -74,7 +74,13 @@ extension PlaybackController: SPTAppRemoteDelegate, SPTAppRemotePlayerStateDeleg
         return remote
     }
 
-    func setup() {}
+    func setup() {
+        NotificationCenter.default.addObserver(
+            forName: .spotifyCallbackURL, object: nil, queue: .main) { [weak self] note in
+                guard let url = note.object as? URL else { return }
+                Task { @MainActor in self?.handleOpenURL(url) }
+        }
+    }
 
     func startPlayback(uri: String, accessToken: String?) {
         pendingURI = uri

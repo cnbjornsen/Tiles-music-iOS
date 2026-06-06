@@ -37,8 +37,8 @@ final class GameEngine: NSObject, ObservableObject {
     private let effectLifetime = 0.35
 
     // Tidsvinduer for at ramme en tile (sekunder)
-    private let perfectWindow = 0.09
-    private let goodWindow = 0.20
+    private let perfectWindow = 0.12
+    private let goodWindow = 0.30
 
     private var displayLink: CADisplayLink?
     private var clockStart: CFTimeInterval?
@@ -48,7 +48,7 @@ final class GameEngine: NSObject, ObservableObject {
 
     // MARK: - Livscyklus
 
-    func load(beatmap: Beatmap, difficulty: Difficulty, onHit: @escaping () -> Void) {
+    func load(beatmap: Beatmap, difficulty: Difficulty, onHit: (() -> Void)?) {
         self.beatmap = beatmap
         self.tiles = beatmap.tiles
         self.approachDuration = difficulty.approachDuration
