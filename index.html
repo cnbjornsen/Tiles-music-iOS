@@ -614,20 +614,25 @@ $('#am-input').addEventListener('input', e=>{
   amTimer = setTimeout(()=>appleSearch(term), 350); // lille forsinkelse så vi ikke søger ved hvert tegn
 });
 
+// Henter JSON og prøver flere veje, fordi iTunes-API'et ikke sender CORS-headers til Safari.
+async function fetchJSON(url){
+  const attempts = [
+    url,                                                              // direkte (virker i nogle browsere)
+    'https://api.allorigins.win/raw?url=' + encodeURIComponent(url),  // CORS-proxy 1
+    'https://corsproxy.io/?url=' + encodeURIComponent(url),           // CORS-proxy 2
+  ];
+  for(const a of attempts){
+    try{ const r = await fetch(a); if(r.ok){ return await r.json(); } }catch(e){ /* prøv næste */ }
+  }
+  return await jsonp(url); // sidste udvej
+}
+
 async function appleSearch(term){
   const list=$('#am-list'); list.innerHTML='<p class="muted" style="padding:16px">Søger…</p>';
-  const url = 'https://itunes.apple.com/search?media=music&entity=song&limit=30&term=' + encodeURIComponent(term);
+  const url = 'https://itunes.apple.com/search?media=music&entity=song&limit=30&country=DK&term=' + encodeURIComponent(term);
   let data;
-  try{
-    // iTunes Search API understøtter CORS, så et almindeligt fetch virker.
-    const r = await fetch(url);
-    if(!r.ok) throw new Error('HTTP '+r.status);
-    data = await r.json();
-  }catch(e1){
-    // Skulle CORS/fetch fejle, prøver vi JSONP som reserve.
-    try{ data = await jsonp(url); }
-    catch(e2){ list.innerHTML='<p class="muted" style="padding:16px">Søgning fejlede. Tjek din internetforbindelse og prøv igen.</p>'; return; }
-  }
+  try{ data = await fetchJSON(url); }
+  catch(err){ list.innerHTML='<p class="muted" style="padding:16px">Søgning fejlede. Prøv igen om lidt.</p>'; return; }
   const tracks = (data.results||[]).filter(r=>r.previewUrl).map(appleTrack);
   if(!tracks.length){ list.innerHTML='<p class="muted" style="padding:16px">Ingen resultater.</p>'; return; }
   list.innerHTML=''; tracks.forEach(t=>list.appendChild(trackRow(t)));
