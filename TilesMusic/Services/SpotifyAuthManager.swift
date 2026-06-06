@@ -69,8 +69,8 @@ final class SpotifyAuthManager: NSObject, ObservableObject {
             .userLibraryRead, .userTopRead,
             .userReadPrivate, .userReadEmail,
         ]
-        // SPTAuthorizationOptions() == rawValue 0 == default (Spotify app if installed, else browser)
-        sessionManager.initiateSession(with: scopes, options: SPTAuthorizationOptions(), campaign: nil)
+        // Empty OptionSet == rawValue 0 == default (Spotify app if installed, else browser).
+        sessionManager.initiateSession(with: scopes, options: [], campaign: nil)
     }
 
     @discardableResult
@@ -187,6 +187,7 @@ final class SpotifyAuthManager: NSObject, ObservableObject {
 // MARK: - SDK delegate conformance
 
 #if canImport(SpotifyiOS)
+@MainActor
 extension SpotifyAuthManager: SPTSessionManagerDelegate {
 
     func sessionManager(manager: SPTSessionManager, didInitiate session: SPTSession) {
