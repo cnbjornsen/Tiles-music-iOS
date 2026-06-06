@@ -35,15 +35,21 @@ god til at teste spillet, hold-tiles og animationerne mens du venter på at vær
 
    > `index.html` vinder over `README.md`, så Pages viser nu spillet i stedet for denne fil.
 
-**Hvad virker i browseren:**
-- ✅ **Demo-tilstand** – spil med det samme med syntetisk musik (intet login).
-- ✅ **Spotify-login + bladre i dit bibliotek** (mest spillede, gemte, playlister).
-- ⚠️ **Ingen rigtig Spotify-lyd i browseren:** Spotifys Web Playback SDK virker
-  *ikke* i mobil-Safari. På iPad spiller spillet derfor syntetisk musik i sangens
-  tempo. Den **rigtige Spotify-lyd kommer i den native app** på din Mac.
+**Musikkilder i web-udgaven:**
+- ✅ **Demo** – syntetisk musik, intet login, spilbar med det samme.
+- ✅ **Apple Music / Deezer** – søg og spil rigtige **30-sek. uddrag** (intet login).
+- ✅ **YouTube** – spiller **hele sangen** via YouTubes IFrame-afspiller (ad-frit med din
+  YouTube Premium). Kræver en gratis **YouTube Data API-nøgle** til søgning (eller indsæt
+  bare et YouTube-link). En lille afspiller vises i toppen (YouTubes regler).
+- ⚠️ **Spotify** – login + bladre i dit bibliotek virker, men **fulde sange kan ikke
+  afspilles i mobil-Safari** (Web Playback SDK er desktop-only). Den rigtige Spotify-lyd
+  kommer i den native app.
 
-For at bruge Spotify i web-udgaven: indtast dit **Client ID** på forsiden, og tilføj
-den viste **Redirect URI** (din Pages-URL) i din Spotify-app i dashboardet.
+YouTube Data API-nøgle: opret et projekt på <https://console.cloud.google.com>, aktivér
+**YouTube Data API v3**, lav en **API-nøgle**, og indsæt den på YouTube-søgeskærmen.
+
+For Spotify i web-udgaven: indtast dit **Client ID** på forsiden, og tilføj den viste
+**Redirect URI** (din Pages-URL) i din Spotify-app i dashboardet.
 
 ---
 
