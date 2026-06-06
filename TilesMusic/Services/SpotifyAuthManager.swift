@@ -187,7 +187,7 @@ final class SpotifyAuthManager: NSObject, ObservableObject {
 // MARK: - SDK delegate conformance
 
 #if canImport(SpotifyiOS)
-@MainActor
+@preconcurrency @MainActor
 extension SpotifyAuthManager: SPTSessionManagerDelegate {
 
     func sessionManager(manager: SPTSessionManager, didInitiate session: SPTSession) {
