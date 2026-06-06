@@ -37,8 +37,8 @@ final class GameEngine: NSObject, ObservableObject {
     private let effectLifetime = 0.35
 
     // Tidsvinduer for at ramme en tile (sekunder)
-    private let perfectWindow = 0.12
-    private let goodWindow = 0.30
+    private let perfectWindow = 0.15
+    private let goodWindow = 0.40
 
     private var displayLink: CADisplayLink?
     private var clockStart: CFTimeInterval?

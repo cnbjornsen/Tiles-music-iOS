@@ -9,6 +9,7 @@ struct ResultView: View {
     let isNewRecord: Bool
     let didWin: Bool
     let onDone: () -> Void
+    let onReplay: () -> Void
 
     @State private var showRecordBadge = false
 
@@ -54,8 +55,8 @@ struct ResultView: View {
 
                 Spacer()
 
-                Button(action: onDone) {
-                    Text("Tilbage til biblioteket")
+                Button(action: onReplay) {
+                    Label("Spil igen", systemImage: "arrow.trianglehead.counterclockwise")
                         .font(.headline)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 16)
@@ -63,6 +64,13 @@ struct ResultView: View {
                 .background(.white, in: Capsule())
                 .foregroundStyle(.black)
                 .padding(.horizontal, 40)
+
+                Button(action: onDone) {
+                    Text("Tilbage til biblioteket")
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(0.7))
+                }
+                .padding(.top, -8)
 
                 Spacer()
             }

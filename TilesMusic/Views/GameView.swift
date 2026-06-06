@@ -19,7 +19,7 @@ struct GameView: View {
     @Environment(\.dismiss) private var dismiss
 
     private let laneColors: [Color] = [.cyan, .purple, .pink, .orange]
-    private let hitLineInset: CGFloat = 200
+    private let hitLineInset: CGFloat = 400
     private let tileAspect: CGFloat = 1.4
 
     var body: some View {
@@ -71,10 +71,15 @@ struct GameView: View {
         }
         .fullScreenCover(isPresented: $showResult) {
             ResultView(track: track, score: engine.score, maxCombo: engine.maxCombo,
-                       bestScore: record.best, isNewRecord: record.isNewRecord, didWin: engine.didWin) {
-                showResult = false
-                dismiss()
-            }
+                       bestScore: record.best, isNewRecord: record.isNewRecord, didWin: engine.didWin,
+                       onDone: {
+                           showResult = false
+                           dismiss()
+                       },
+                       onReplay: {
+                           showResult = false
+                           startGame()
+                       })
         }
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
