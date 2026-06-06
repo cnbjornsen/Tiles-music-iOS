@@ -58,5 +58,7 @@
 	<array>
 		<string>spotify</string>
 	</array>
+	<key>NSAppleMusicUsageDescription</key>
+	<string>Tiles Music bruger dit musikbibliotek, så du kan spille til dine egne sange.</string>
 </dict>
 </plist>

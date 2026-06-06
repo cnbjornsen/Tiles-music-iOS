@@ -2,10 +2,10 @@ import SwiftUI
 
 /// Selve spillet: tiles falder ned i fire baner, og man trykker i takt med musikken.
 struct GameView: View {
-    let track: Track
+    let track: GameTrack
     let beatmap: Beatmap
     let difficulty: Difficulty
-    @ObservedObject var playback: PlaybackController
+    let playback: any GamePlayback
 
     @StateObject private var engine = GameEngine()
     @State private var sound = SoundEngine()
@@ -288,7 +288,7 @@ struct GameView: View {
         playback.onPlaybackStarted = {
             engine.startClock()
         }
-        playback.play(track: track)
+        playback.begin()
     }
 
     private func teardown() {

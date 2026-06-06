@@ -16,7 +16,12 @@ Log ind med Spotify, vælg en sang fra dit bibliotek, og ram tilene i takt med m
 - **Tap-tiles og hold-tiles** (lange toner der skal holdes nede).
 - **Point, combo, liv** og resultatskærm.
 - **Lokale rekorder** pr. sang og sværhedsgrad (gemmes på enheden).
-- **Afspilning af den rigtige Spotify-sang** under spillet via Spotify App Remote (kræver Premium – se nedenfor).
+- **Tre afspilningskilder:**
+  - **Spotify App Remote** – fulde sange (kræver Premium + Spotify-appen; se nedenfor).
+  - **Egen musik / importerede filer** – vælg fra dit musikbibliotek (`MPMediaPicker`) eller
+    importér en lydfil. For ikke-DRM-lyd **analyseres beatet**, så tiles rammer de faktiske
+    anslag i musikken (rigtig synkronisering – ikke kun BPM).
+  - *(Apple Music/MusicKit kan tilføjes senere – kræver Apple Developer Program.)*
 
 ---
 

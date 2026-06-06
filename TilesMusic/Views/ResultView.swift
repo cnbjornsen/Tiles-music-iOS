@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Resultatskærm efter en runde.
 struct ResultView: View {
-    let track: Track
+    let track: GameTrack
     let score: Int
     let maxCombo: Int
     let bestScore: Int

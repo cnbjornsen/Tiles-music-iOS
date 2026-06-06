@@ -10,7 +10,7 @@ import Foundation
 /// spilles uden Spotify-lyd (kun klik-feedback). `#if canImport(SpotifyiOS)`
 /// sørger for at den rigtige implementering kun bruges når SDK'et er til stede.
 @MainActor
-final class PlaybackController: NSObject, ObservableObject {
+final class PlaybackController: NSObject, ObservableObject, GamePlayback {
 
     enum Status { case disconnected, connecting, playing, paused, failed(String) }
 
@@ -21,12 +21,19 @@ final class PlaybackController: NSObject, ObservableObject {
 
     private let auth: SpotifyAuthManager
     private var pendingURI: String?
+    private var queuedTrack: Track?
 
     init(auth: SpotifyAuthManager) {
         self.auth = auth
         super.init()
         setup()
     }
+
+    /// Vælg sangen der skal spilles, før spillet starter (GamePlayback-flow).
+    func prepare(track: Track) { queuedTrack = track }
+
+    /// GamePlayback: start afspilning af den valgte sang.
+    func begin() { if let track = queuedTrack { play(track: track) } }
 
     /// Skal kaldes fra `onOpenURL` så App Remote kan afslutte sin opkobling.
     @discardableResult

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct LoginView: View {
     @EnvironmentObject private var auth: SpotifyAuthManager
+    @State private var showLocalMusic = false
 
     var body: some View {
         ZStack {
@@ -59,9 +60,18 @@ struct LoginView: View {
                         .padding(.horizontal, 32)
                 }
 
+                Button {
+                    showLocalMusic = true
+                } label: {
+                    Label("Spil din egen musik", systemImage: "folder")
+                        .font(.subheadline.weight(.semibold))
+                }
+                .foregroundStyle(.white.opacity(0.85))
+
                 Spacer()
             }
             .padding()
         }
+        .fullScreenCover(isPresented: $showLocalMusic) { LocalMusicView() }
     }
 }

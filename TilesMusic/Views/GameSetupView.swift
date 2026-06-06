@@ -64,7 +64,7 @@ struct GameSetupView: View {
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(isPresented: $goToGame) {
             if let beatmap {
-                GameView(track: track, beatmap: beatmap, difficulty: difficulty, playback: playback)
+                GameView(track: GameTrack(track), beatmap: beatmap, difficulty: difficulty, playback: playback)
             }
         }
     }
@@ -81,6 +81,7 @@ struct GameSetupView: View {
             difficulty: difficulty,
             seed: seed(forTrackID: track.id)
         )
+        playback.prepare(track: track)   // vælg sangen App Remote skal spille
         goToGame = true
     }
 }
