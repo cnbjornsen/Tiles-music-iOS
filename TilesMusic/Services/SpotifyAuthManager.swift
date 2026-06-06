@@ -190,7 +190,8 @@ final class SpotifyAuthManager: NSObject, ObservableObject {
 extension SpotifyAuthManager: SPTSessionManagerDelegate {
 
     nonisolated func sessionManager(manager: SPTSessionManager, didInitiate session: SPTSession) {
-        MainActor.assumeIsolated { [self] in
+        Task { @MainActor [weak self] in
+            guard let self else { return }
             persist(session)
             accessToken = session.accessToken
             expiresAt = session.expirationDate
@@ -200,14 +201,16 @@ extension SpotifyAuthManager: SPTSessionManagerDelegate {
     }
 
     nonisolated func sessionManager(manager: SPTSessionManager, didFailWith error: Error) {
-        MainActor.assumeIsolated { [self] in
+        Task { @MainActor [weak self] in
+            guard let self else { return }
             lastError = error.localizedDescription
             failRenewals(with: error)
         }
     }
 
     nonisolated func sessionManager(manager: SPTSessionManager, didRenew session: SPTSession) {
-        MainActor.assumeIsolated { [self] in
+        Task { @MainActor [weak self] in
+            guard let self else { return }
             persist(session)
             accessToken = session.accessToken
             expiresAt = session.expirationDate

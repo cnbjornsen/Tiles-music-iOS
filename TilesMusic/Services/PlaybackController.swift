@@ -138,7 +138,8 @@ extension PlaybackController: SPTAppRemoteDelegate, SPTAppRemotePlayerStateDeleg
     // MARK: SPTAppRemoteDelegate
 
     nonisolated func appRemoteDidEstablishConnection(_ appRemote: SPTAppRemote) {
-        MainActor.assumeIsolated { [self] in
+        Task { @MainActor [weak self] in
+            guard let self else { return }
             appRemote.playerAPI?.delegate = self
             appRemote.playerAPI?.subscribe(toPlayerState: nil)
             if wantsPause {
@@ -158,22 +159,20 @@ extension PlaybackController: SPTAppRemoteDelegate, SPTAppRemotePlayerStateDeleg
     }
 
     nonisolated func appRemote(_ appRemote: SPTAppRemote, didFailConnectionAttemptWithError error: Error?) {
-        MainActor.assumeIsolated { [self] in
-            status = .failed(error?.localizedDescription ?? "Kunne ikke forbinde til Spotify.")
+        Task { @MainActor [weak self] in
+            self?.status = .failed(error?.localizedDescription ?? "Kunne ikke forbinde til Spotify.")
         }
     }
 
     nonisolated func appRemote(_ appRemote: SPTAppRemote, didDisconnectWithError error: Error?) {
-        MainActor.assumeIsolated { [self] in
-            status = .disconnected
-        }
+        Task { @MainActor [weak self] in self?.status = .disconnected }
     }
 
     // MARK: SPTAppRemotePlayerStateDelegate
 
     nonisolated func playerStateDidChange(_ playerState: SPTAppRemotePlayerState) {
-        MainActor.assumeIsolated { [self] in
-            status = playerState.isPaused ? .paused : .playing
+        Task { @MainActor [weak self] in
+            self?.status = playerState.isPaused ? .paused : .playing
         }
     }
 }
