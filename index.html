@@ -110,8 +110,8 @@
     <h1>Tiles Music</h1>
     <p class="sub">Ram tilene i takt med musikken. Hold de lange tiles nede til de er færdige.</p>
     <button class="primary" id="btn-demo">▶︎ Spil demo</button>
-    <button class="primary" id="btn-apple" style="background:linear-gradient(120deg,#fa2d48,#ff5e3a)">🍎 Apple Music – søg & hør uddrag</button>
-    <p class="muted" style="margin-top:-8px">Apple Music kræver intet login og spiller rigtige 30-sek. uddrag af næsten alle sange.</p>
+    <button class="primary" id="btn-apple" style="background:linear-gradient(120deg,#fa2d48,#ff5e3a)">🔎 Søg sange & hør uddrag</button>
+    <p class="muted" style="margin-top:-8px">Intet login. Søger på tværs af musiktjenester og spiller rigtige 30-sek. uddrag.</p>
 
     <div class="panel">
       <div style="font-weight:700;margin-bottom:6px">Spil til dine egne sange (Spotify)</div>
@@ -145,11 +145,11 @@
     <div class="list" id="lib-list"></div>
   </section>
 
-  <!-- APPLE MUSIC SØGNING -->
+  <!-- MUSIK-SØGNING (uddrag) -->
   <section id="applemusic" class="screen">
     <div class="topbar">
       <button id="am-back">‹ Tilbage</button>
-      <h2>Apple Music</h2>
+      <h2>Søg efter musik</h2>
     </div>
     <div style="padding:0 16px 8px">
       <input id="am-input" placeholder="Søg efter sang eller kunstner…" autocomplete="off"
@@ -541,7 +541,7 @@ $('#btn-login').onclick = ()=>Spotify.login();
 $('#btn-logout').onclick = ()=>{ Spotify.logout(); refreshLoginUI(); };
 $('#btn-library').onclick = ()=>{ show('library'); loadLibrary('top'); };
 $('#lib-back').onclick = ()=>show('home');
-$('#setup-back').onclick = ()=>show(current ? (current.source==='apple'?'applemusic':'library') : 'home');
+$('#setup-back').onclick = ()=>show(current ? (current.source==='spotify'?'library':'applemusic') : 'home');
 $('#btn-home').onclick = ()=>{ show('home'); refreshLoginUI(); };
 $('#quit').onclick = ()=>{ if(game){ game.stop(); } audio.stop(); stopPreview(); show('home'); };
 
@@ -629,16 +629,32 @@ async function fetchJSON(url){
 
 async function appleSearch(term){
   const list=$('#am-list'); list.innerHTML='<p class="muted" style="padding:16px">Søger…</p>';
-  const url = 'https://itunes.apple.com/search?media=music&entity=song&limit=30&country=DK&term=' + encodeURIComponent(term);
-  let data;
-  try{ data = await fetchJSON(url); }
-  catch(err){ list.innerHTML='<p class="muted" style="padding:16px">Søgning fejlede. Prøv igen om lidt.</p>'; return; }
-  const tracks = (data.results||[]).filter(r=>r.previewUrl).map(appleTrack);
-  if(!tracks.length){ list.innerHTML='<p class="muted" style="padding:16px">Ingen resultater.</p>'; return; }
+  let tracks = [];
+
+  // 1) Deezer – understøtter officielt JSONP, så det virker uden CORS-bøvl i Safari.
+  try{
+    const dz = await jsonp('https://api.deezer.com/search?output=jsonp&limit=30&q=' + encodeURIComponent(term));
+    tracks = (dz.data||[]).filter(x=>x.preview).map(deezerTrack);
+  }catch(e){ /* prøv iTunes nedenfor */ }
+
+  // 2) Reserve: iTunes via CORS-proxy.
+  if(!tracks.length){
+    try{
+      const it = await fetchJSON('https://itunes.apple.com/search?media=music&entity=song&limit=30&term=' + encodeURIComponent(term));
+      tracks = (it.results||[]).filter(r=>r.previewUrl).map(appleTrack);
+    }catch(e){ /* falder igennem */ }
+  }
+
+  if(!tracks.length){ list.innerHTML='<p class="muted" style="padding:16px">Ingen resultater (eller søgning fejlede). Prøv en anden søgning.</p>'; return; }
   list.innerHTML=''; tracks.forEach(t=>list.appendChild(trackRow(t)));
 }
+function deezerTrack(x){
+  return { source:'preview', provider:'Deezer', id:'dz'+x.id, name:x.title,
+    artist:x.artist?x.artist.name:'', artwork:x.album?x.album.cover_medium:null,
+    duration:x.duration||30, preview:x.preview };
+}
 function appleTrack(r){
-  return { source:'apple', id:'am'+r.trackId, name:r.trackName, artist:r.artistName,
+  return { source:'preview', provider:'Apple Music', id:'am'+r.trackId, name:r.trackName, artist:r.artistName,
     artwork:(r.artworkUrl100||'').replace('100x100','300x300'),
     duration:(r.trackTimeMillis||180000)/1000,
     preview:r.previewUrl };
@@ -652,7 +668,7 @@ function openSetup(){
   art.style.backgroundSize='cover';
   const note=$('#setup-note');
   if(!current) note.textContent='Syntetisk demo-beat';
-  else if(current.preview){ const kilde = current.source==='apple'?'Apple Music':'Spotify';
+  else if(current.preview){ const kilde = current.provider || (current.source==='spotify'?'Spotify':'uddrag');
     note.textContent='▶︎ Spiller et 30-sek. uddrag fra '+kilde; }
   else note.textContent='Intet lyd-uddrag for denne sang – spiller syntetisk beat i sangens tempo.';
   renderDiffs();
