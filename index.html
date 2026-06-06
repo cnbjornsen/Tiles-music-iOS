@@ -616,13 +616,21 @@ $('#am-input').addEventListener('input', e=>{
 
 async function appleSearch(term){
   const list=$('#am-list'); list.innerHTML='<p class="muted" style="padding:16px">Søger…</p>';
+  const url = 'https://itunes.apple.com/search?media=music&entity=song&limit=30&term=' + encodeURIComponent(term);
+  let data;
   try{
-    const url = 'https://itunes.apple.com/search?media=music&entity=song&limit=30&term=' + encodeURIComponent(term);
-    const data = await jsonp(url);
-    const tracks = (data.results||[]).filter(r=>r.previewUrl).map(appleTrack);
-    if(!tracks.length){ list.innerHTML='<p class="muted" style="padding:16px">Ingen resultater.</p>'; return; }
-    list.innerHTML=''; tracks.forEach(t=>list.appendChild(trackRow(t)));
-  }catch(err){ list.innerHTML='<p class="muted" style="padding:16px">Søgning fejlede: '+err.message+'</p>'; }
+    // iTunes Search API understøtter CORS, så et almindeligt fetch virker.
+    const r = await fetch(url);
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    data = await r.json();
+  }catch(e1){
+    // Skulle CORS/fetch fejle, prøver vi JSONP som reserve.
+    try{ data = await jsonp(url); }
+    catch(e2){ list.innerHTML='<p class="muted" style="padding:16px">Søgning fejlede. Tjek din internetforbindelse og prøv igen.</p>'; return; }
+  }
+  const tracks = (data.results||[]).filter(r=>r.previewUrl).map(appleTrack);
+  if(!tracks.length){ list.innerHTML='<p class="muted" style="padding:16px">Ingen resultater.</p>'; return; }
+  list.innerHTML=''; tracks.forEach(t=>list.appendChild(trackRow(t)));
 }
 function appleTrack(r){
   return { source:'apple', id:'am'+r.trackId, name:r.trackName, artist:r.artistName,
