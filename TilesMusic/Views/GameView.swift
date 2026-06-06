@@ -89,34 +89,41 @@ struct GameView: View {
     // MARK: - Faldende tiles + hold + hit-effekter
 
     private func fallingTiles(laneWidth: CGFloat, tileHeight: CGFloat, hitLineY: CGFloat) -> some View {
-        Canvas { context, size in
-            let approach = engine.approachDuration
+        // Snapshot af motorens tilstand – Canvas-closuren kan ikke tilgå den
+        // @MainActor-isolerede engine direkte, så vi læser værdierne her.
+        let currentTime = engine.currentTime
+        let approach = engine.approachDuration
+        let tiles = engine.tiles
+        let effects = engine.hitEffects
+        let colors = laneColors
+
+        return Canvas { context, size in
             let pxPerSec = (hitLineY + tileHeight) / approach
             // y for et punkt der skal krydse hit-linjen til tidspunktet ct.
-            func y(crossing ct: Double) -> CGFloat {
-                hitLineY - CGFloat(ct - engine.currentTime) * pxPerSec
+            let yAt: (Double) -> CGFloat = { ct in
+                hitLineY - CGFloat(ct - currentTime) * pxPerSec
             }
 
             // 1) Tiles (ramte/missede vises ikke – hit-effekten overtager)
-            for tile in engine.tiles where tile.state == .pending || tile.state == .holding {
+            for tile in tiles where tile.state == .pending || tile.state == .holding {
                 let x = CGFloat(tile.lane) * laneWidth
-                let color = laneColors[tile.lane]
+                let color = colors[tile.lane]
 
                 if tile.isHold {
-                    drawHold(tile, in: context, x: x, laneWidth: laneWidth,
-                             tileHeight: tileHeight, hitLineY: hitLineY, y: y, color: color)
+                    GameView.drawHold(tile, in: context, x: x, laneWidth: laneWidth,
+                                      tileHeight: tileHeight, hitLineY: hitLineY, yAt: yAt, color: color)
                 } else {
-                    let centerY = y(crossing: tile.time)
+                    let centerY = yAt(tile.time)
                     guard centerY > -tileHeight, centerY < size.height + tileHeight else { continue }
                     let rect = CGRect(x: x + 4, y: centerY - tileHeight / 2,
                                       width: laneWidth - 8, height: tileHeight)
-                    fill(context, Path(roundedRect: rect, cornerRadius: 12), color: color)
+                    GameView.fill(context, Path(roundedRect: rect, cornerRadius: 12), color: color)
                 }
             }
 
             // 2) Hit-effekter: en lysende ring der vokser og fader ved hit-linjen.
-            for effect in engine.hitEffects {
-                let progress = (engine.currentTime - effect.time) / 0.35
+            for effect in effects {
+                let progress = (currentTime - effect.time) / 0.35
                 guard progress >= 0, progress <= 1 else { continue }
                 let x = CGFloat(effect.lane) * laneWidth
                 let inset = 4 - CGFloat(progress) * 10        // breder sig udad
@@ -125,7 +132,7 @@ struct GameView: View {
                                   height: tileHeight + CGFloat(progress) * 24)
                 var ring = context
                 ring.opacity = 1 - progress
-                let glow = effect.perfect ? Color.white : laneColors[effect.lane]
+                let glow = effect.perfect ? Color.white : colors[effect.lane]
                 ring.addFilter(.blur(radius: 6))
                 ring.stroke(Path(roundedRect: rect, cornerRadius: 16),
                             with: .color(glow), lineWidth: 4)
@@ -136,10 +143,10 @@ struct GameView: View {
 
     /// Tegner en hold-tile som en aflang bjælke. Mens den holdes, "spises" den
     /// nedefra, så halen falder ned mod hit-linjen indtil tonen er færdig.
-    private func drawHold(_ tile: Tile, in context: GraphicsContext, x: CGFloat, laneWidth: CGFloat,
-                          tileHeight: CGFloat, hitLineY: CGFloat, y: (Double) -> CGFloat, color: Color) {
-        let headY = tile.state == .holding ? hitLineY : y(crossing: tile.time)
-        let tailY = y(crossing: tile.endTime)
+    private static func drawHold(_ tile: Tile, in context: GraphicsContext, x: CGFloat, laneWidth: CGFloat,
+                                 tileHeight: CGFloat, hitLineY: CGFloat, yAt: (Double) -> CGFloat, color: Color) {
+        let headY = tile.state == .holding ? hitLineY : yAt(tile.time)
+        let tailY = yAt(tile.endTime)
         let top = min(headY, tailY) - tileHeight / 2
         let bottom = max(headY, tailY) + tileHeight / 2
         guard bottom > 0 else { return }
@@ -165,7 +172,7 @@ struct GameView: View {
         }
     }
 
-    private func fill(_ context: GraphicsContext, _ path: Path, color: Color) {
+    private static func fill(_ context: GraphicsContext, _ path: Path, color: Color) {
         context.fill(path, with: .linearGradient(
             Gradient(colors: [color.opacity(0.95), color.opacity(0.6)]),
             startPoint: CGPoint(x: path.boundingRect.midX, y: path.boundingRect.minY),

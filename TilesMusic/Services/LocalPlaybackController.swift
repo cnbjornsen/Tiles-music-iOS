@@ -24,8 +24,8 @@ final class LocalPlaybackController: ObservableObject, GamePlayback {
         // Fyr "startet" så snart afspilningspositionen faktisk bevæger sig.
         let interval = CMTime(seconds: 0.05, preferredTimescale: 600)
         timeObserver = p.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
-            guard let self else { return }
-            if time.seconds > 0 { self.fireStarted() }
+            guard time.seconds > 0 else { return }
+            Task { @MainActor in self?.fireStarted() }
         }
         p.play()
     }
