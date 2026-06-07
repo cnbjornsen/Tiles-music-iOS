@@ -20,6 +20,7 @@ final class PlaybackController: NSObject, ObservableObject, GamePlayback {
     private var wantsPause = false
     private var playbackStartedFired = false
     private var pauseTask: Task<Void, Never>?
+    private var callbackObserver: NSObjectProtocol?
 
     init(auth: SpotifyAuthManager) {
         self.auth = auth
@@ -67,7 +68,8 @@ extension PlaybackController: SPTAppRemoteDelegate, SPTAppRemotePlayerStateDeleg
     }
 
     func setup() {
-        NotificationCenter.default.addObserver(
+        // Gem token så vi kan fjerne observeren præcist - undgår dobbelt-callback.
+        callbackObserver = NotificationCenter.default.addObserver(
             forName: .spotifyCallbackURL, object: nil, queue: .main) { [weak self] note in
                 guard let url = note.object as? URL else { return }
                 Task { @MainActor in self?.handleOpenURL(url) }
@@ -177,17 +179,32 @@ extension PlaybackController: SPTAppRemoteDelegate, SPTAppRemotePlayerStateDeleg
         Task { @MainActor [weak self] in
             guard let self else { return }
             appRemote.playerAPI?.delegate = self
-            // Subscribe – SDK sender øjeblikkeligt den aktuelle spiller-tilstand,
-            // så playerStateDidChange(isPaused:false) bruges som præcist startsignal.
             appRemote.playerAPI?.subscribe(toPlayerState: nil)
 
             if wantsPause {
                 print("[PC] wantsPause: pausing")
                 appRemote.playerAPI?.pause(nil)
+                return
             }
-            // Kalder IKKE play(uri) her: authorizeAndPlayURI startede allerede sangen,
-            // og play(uri) giver "not_authorized" med URL-callback-tokenet.
-            // playerStateDidChange fyrer notifyPlaybackStarted når Spotify melder "spiller".
+
+            // subscribe() fyrer kun ved STATE-ÆNDRINGER – ikke ved den aktuelle tilstand.
+            // getPlayerState() giver os den øjeblikkelige tilstand (Spotify spiller allerede
+            // via authorizeAndPlayURI), så vi kan affyre notifyPlaybackStarted med det samme.
+            appRemote.playerAPI?.getPlayerState({ [weak self] result, error in
+                print("[PC] getPlayerState: error=\(String(describing: error))")
+                guard let state = result as? SPTAppRemotePlayerState else {
+                    print("[PC] getPlayerState: ingen tilstand – venter på fallback-timer")
+                    return
+                }
+                print("[PC] getPlayerState: isPaused=\(state.isPaused) uri=\(state.track.uri)")
+                Task { @MainActor [weak self] in
+                    guard let self, !self.wantsPause else { return }
+                    if !state.isPaused {
+                        self.notifyPlaybackStarted()
+                    }
+                    // Spotify er paused: afvent playerStateDidChange eller fallback-timer.
+                }
+            })
         }
     }
 
