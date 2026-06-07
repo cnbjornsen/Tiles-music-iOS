@@ -225,9 +225,14 @@ extension PlaybackController: SPTAppRemoteDelegate, SPTAppRemotePlayerStateDeleg
         print("[PC] playerStateDidChange: isPaused=\(playerState.isPaused)")
         Task { @MainActor [weak self] in
             guard let self else { return }
-            // notifyPlaybackStarted fyres IKKE her: den forrige sang kan kortvarigt
-            // melde "spiller" før den korrekte sang loades via play(uri). Start-signalet
-            // kommer fra play(uri)-callbacket i appRemoteDidEstablishConnection.
+            // Uventet pause mens spillet kører: webPause-request fra forrige spil kan
+            // ankomme til Spotify EFTER det nye spil er startet (race condition med netværks-
+            // latency). Genoptag automatisk hvis vi ikke bevidst ønskede en pause.
+            if playerState.isPaused && !self.wantsPause && self.playbackStartedFired {
+                print("[PC] auto-resume: uventet pause under spil")
+                self.appRemote.playerAPI?.resume(nil)
+                return  // Behold status=playing; playerStateDidChange fyrer igen med isPaused=false
+            }
             status = playerState.isPaused ? .paused : .playing
         }
     }
