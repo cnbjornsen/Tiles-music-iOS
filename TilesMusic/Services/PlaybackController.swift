@@ -113,16 +113,19 @@ extension PlaybackController: SPTAppRemoteDelegate, SPTAppRemotePlayerStateDeleg
         // starter sangen og forbinder App Remote igen. Web API kan IKKE vække en
         // lukket/baggrunds-app – den styrer kun en allerede aktiv enhed.
         status = .connecting
+        print("[PC] authorizeAndPlayURI: \(uri)")
         appRemote.authorizeAndPlayURI(uri) { [weak self] success in
-            // success = NO betyder kun at Spotify-appen ikke er installeret.
+            print("[PC] authorizeAndPlayURI callback: success=\(success)")
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 if !success {
+                    print("[PC] Spotify-appen ikke installeret eller URI afvist")
                     self.status = .failed("Spotify-appen kunne ikke åbnes.")
                     return
                 }
                 // Fallback hvis App Remote ikke når at melde "spiller" indenfor 4 sek.
                 try? await Task.sleep(nanoseconds: 4_000_000_000)
+                print("[PC] 4s fallback: notifyPlaybackStarted")
                 self.notifyPlaybackStarted()
             }
         }
@@ -167,21 +170,27 @@ extension PlaybackController: SPTAppRemoteDelegate, SPTAppRemotePlayerStateDeleg
     // MARK: SPTAppRemoteDelegate
 
     nonisolated func appRemoteDidEstablishConnection(_ appRemote: SPTAppRemote) {
+        print("[PC] appRemoteDidEstablishConnection")
         Task { @MainActor [weak self] in
             guard let self else { return }
+            print("[PC] playerAPI=\(String(describing: appRemote.playerAPI)), pendingURI=\(pendingURI ?? "nil"), wantsPause=\(wantsPause)")
             appRemote.playerAPI?.delegate = self
             appRemote.playerAPI?.subscribe(toPlayerState: nil)
 
             if wantsPause {
+                print("[PC] wantsPause: pausing via App Remote")
                 appRemote.playerAPI?.pause(nil)
                 return
             }
             if let uri = pendingURI {
-                // App Remote tilkoblede før timeren: brug den for præcis callback.
+                print("[PC] sending play: \(uri)")
                 appRemote.playerAPI?.seek(toPosition: 0, callback: nil)
-                appRemote.playerAPI?.play(uri, callback: { [weak self] _, _ in
+                appRemote.playerAPI?.play(uri, callback: { [weak self] result, error in
+                    print("[PC] play callback: result=\(String(describing: result)) error=\(String(describing: error))")
                     Task { @MainActor in self?.notifyPlaybackStarted() }
                 })
+            } else {
+                print("[PC] pendingURI is nil — play not sent")
             }
         }
     }
@@ -200,10 +209,9 @@ extension PlaybackController: SPTAppRemoteDelegate, SPTAppRemotePlayerStateDeleg
     // MARK: SPTAppRemotePlayerStateDelegate
 
     nonisolated func playerStateDidChange(_ playerState: SPTAppRemotePlayerState) {
+        print("[PC] playerStateDidChange: isPaused=\(playerState.isPaused)")
         Task { @MainActor [weak self] in
             guard let self else { return }
-            // Når Spotify faktisk begynder at spille, er det det præcise signal til
-            // at starte nedtælling/ur – mere nøjagtigt end fallback-timeren.
             if !playerState.isPaused && !self.wantsPause {
                 self.notifyPlaybackStarted()
             }
