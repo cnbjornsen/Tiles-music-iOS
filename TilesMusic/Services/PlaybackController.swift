@@ -20,7 +20,14 @@ final class PlaybackController: NSObject, ObservableObject, GamePlayback {
     var onPlaybackStarted: (() -> Void)?
 
     private let auth: SpotifyAuthManager
+
+    /// URI der skal afspilles ved næste tilkobling. Ryddes så snart afspilningen starter,
+    /// så en spontan gen-tilkobling under spillet ikke genstarter sangen.
     private var pendingURI: String?
+
+    /// URI på den senest startede sang – bruges til at tvinge tilkobling for pause.
+    private var lastPlayedURI: String?
+
     private var queuedTrack: Track?
     private var wantsPause = false
 
@@ -33,7 +40,7 @@ final class PlaybackController: NSObject, ObservableObject, GamePlayback {
     /// Vælg sangen der skal spilles, før spillet starter (GamePlayback-flow).
     func prepare(track: Track) { queuedTrack = track }
 
-    /// GamePlayback: start afspilning af den valgte sang.
+    /// GamePlayback: start afspilning af den allerede valgte sang.
     func begin() { if let track = queuedTrack { play(track: track) } }
 
     /// Skal kaldes fra `onOpenURL` så App Remote kan afslutte sin opkobling.
@@ -85,20 +92,33 @@ extension PlaybackController: SPTAppRemoteDelegate, SPTAppRemotePlayerStateDeleg
 
     func startPlayback(uri: String, accessToken: String?) {
         pendingURI = uri
+        lastPlayedURI = uri
         wantsPause = false
         if let accessToken { appRemote.connectionParameters.accessToken = accessToken }
+
         if appRemote.isConnected, let playerAPI = appRemote.playerAPI {
-            // Allerede forbundet: genstart sangen direkte – ingen app-skift.
-            status = .playing
+            // Forbundet: søg til start og afspil direkte – ingen app-skift.
+            // seek(toPosition:0) sikrer at replay altid starter forfra, selv
+            // hvis den samme sang allerede er loaded i Spotify.
+            playerAPI.seek(toPosition: 0, callback: nil)
             playerAPI.play(uri, callback: { [weak self] _, _ in
-                Task { @MainActor in self?.onPlaybackStarted?() }
+                Task { @MainActor in self?.notifyPlaybackStarted() }
             })
         } else {
-            // Prøv stille tilkobling først (ingen app-skift); hvis det fejler,
-            // falder vi tilbage til authorizeAndPlayURI i didFailConnectionAttempt.
+            // Prøv stille tilkobling (ingen app-skift); ved fejl går vi via
+            // authorizeAndPlayURI i didFailConnectionAttemptWithError.
             status = .connecting
             appRemote.connect()
         }
+    }
+
+    /// Kaldes præcis én gang pr. sang, uanset om App Remote eller `authorizeAndPlayURI` startede den.
+    private func notifyPlaybackStarted() {
+        status = .playing
+        // Ryd pendingURI – en spontan gen-tilkobling under spillet skal
+        // IKKE genstarte sangen; den er allerede i gang.
+        pendingURI = nil
+        onPlaybackStarted?()
     }
 
     func handleAuthCallback(_ url: URL) -> Bool {
@@ -112,13 +132,12 @@ extension PlaybackController: SPTAppRemoteDelegate, SPTAppRemotePlayerStateDeleg
     }
 
     func pausePlayback() {
-        // Sæt altid flaget så pause sker, selv hvis App Remote ikke er forbundet endnu.
         wantsPause = true
         if appRemote.isConnected {
             appRemote.playerAPI?.pause(nil)
         } else if appRemote.connectionParameters.accessToken != nil {
-            // App Remote-forbindelsen kan være faldet væk mens Spotify stadig spiller.
-            // Genopret den, så pausen sendes når forbindelsen er etableret (didEstablish).
+            // Forbindelsen er faldet – forsøg stille gen-tilkobling.
+            // Hvis det fejler, tvinger didFail en tilkobling via Spotify-appen.
             appRemote.connect()
         }
     }
@@ -126,8 +145,8 @@ extension PlaybackController: SPTAppRemoteDelegate, SPTAppRemotePlayerStateDeleg
     func resumePlayback() { appRemote.playerAPI?.resume(nil) }
 
     func teardown() {
-        // Bevar forbindelsen til App Remote, så replay og næste sang virker –
-        // men sørg altid for at musikken faktisk standses.
+        // Ryd pendingURI så gen-tilkobling ikke genstarter sangen.
+        pendingURI = nil
         pausePlayback()
         status = .paused
     }
@@ -139,36 +158,61 @@ extension PlaybackController: SPTAppRemoteDelegate, SPTAppRemotePlayerStateDeleg
             guard let self else { return }
             appRemote.playerAPI?.delegate = self
             appRemote.playerAPI?.subscribe(toPlayerState: nil)
+
             if wantsPause {
+                // Pause straks – uanset om vi tilkoblede for at pause eller genstarte.
                 appRemote.playerAPI?.pause(nil)
                 wantsPause = false
                 return
             }
+
             if let uri = pendingURI {
+                // pendingURI er sat = sangen er endnu ikke startet. Start den.
+                appRemote.playerAPI?.seek(toPosition: 0, callback: nil)
                 appRemote.playerAPI?.play(uri, callback: { [weak self] _, _ in
-                    Task { @MainActor in
-                        self?.status = .playing
-                        self?.onPlaybackStarted?()
-                    }
+                    Task { @MainActor in self?.notifyPlaybackStarted() }
                 })
             }
+            // pendingURI = nil = sangen kørte allerede, forbindelsen er
+            // gen-etableret under spillet. Ingen handling nødvendig.
         }
     }
 
     nonisolated func appRemote(_ appRemote: SPTAppRemote, didFailConnectionAttemptWithError error: Error?) {
         Task { @MainActor [weak self] in
             guard let self else { return }
-            if let uri = pendingURI, !wantsPause {
-                // Stille tilkobling fejlede – åbn Spotify-appen som fallback.
-                appRemote.authorizeAndPlayURI(uri)
-            } else {
-                status = .failed(error?.localizedDescription ?? "Kunne ikke forbinde til Spotify.")
+
+            if wantsPause {
+                // Stille tilkobling til pause fejlede. Åbn Spotify-appen kortvarigt
+                // for at tvinge socket-serveren op, og pause straks i didEstablish.
+                // wantsPause = true styrer at pause sendes, ikke play.
+                appRemote.authorizeAndPlayURI(lastPlayedURI ?? "")
+                return
             }
+
+            if let uri = pendingURI {
+                // Første tilkobling til en ny sang fejlede – åbn Spotify-appen.
+                appRemote.authorizeAndPlayURI(uri)
+                return
+            }
+
+            // Gen-tilkobling under aktivt spil fejlede (pendingURI = nil, !wantsPause).
+            // Sangen afspilles stadig i Spotify – intet at gøre.
+            status = .disconnected
         }
     }
 
     nonisolated func appRemote(_ appRemote: SPTAppRemote, didDisconnectWithError error: Error?) {
-        Task { @MainActor [weak self] in self?.status = .disconnected }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            status = .disconnected
+            // Forsøg øjeblikkelig stille gen-tilkobling. Hvis pendingURI = nil
+            // (sangen er startet) genstarter didEstablish IKKE sangen – den
+            // abonnerer blot på spillertilstand igen.
+            if appRemote.connectionParameters.accessToken != nil {
+                appRemote.connect()
+            }
+        }
     }
 
     // MARK: SPTAppRemotePlayerStateDelegate
@@ -188,7 +232,6 @@ extension PlaybackController {
     func setup() {}
 
     func startPlayback(uri: String, accessToken: String?) {
-        // SDK ikke tilføjet endnu – start spillet med det samme uden Spotify-lyd.
         status = .playing
         onPlaybackStarted?()
     }
@@ -196,7 +239,7 @@ extension PlaybackController {
     func handleAuthCallback(_ url: URL) -> Bool { false }
     func pausePlayback() { status = .paused }
     func resumePlayback() { status = .playing }
-    func teardown() { status = .disconnected }
+    func teardown() { status = .paused }
 }
 
 #endif
