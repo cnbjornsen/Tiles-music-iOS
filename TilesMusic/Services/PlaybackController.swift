@@ -115,26 +115,21 @@ extension PlaybackController: SPTAppRemoteDelegate, SPTAppRemotePlayerStateDeleg
         // starter sangen og forbinder App Remote igen. Web API kan IKKE vække en
         // lukket/baggrunds-app – den styrer kun en allerede aktiv enhed.
         status = .connecting
-        print("[PC] authorizeAndPlayURI: \(uri)")
         appRemote.authorizeAndPlayURI(uri) { [weak self] success in
-            print("[PC] authorizeAndPlayURI callback: success=\(success)")
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 if !success {
-                    print("[PC] Spotify-appen ikke installeret eller URI afvist")
                     self.status = .failed("Spotify-appen kunne ikke åbnes.")
                     return
                 }
                 // Fallback hvis App Remote ikke når at melde "spiller" indenfor 4 sek.
                 try? await Task.sleep(nanoseconds: 4_000_000_000)
-                print("[PC] 4s fallback: notifyPlaybackStarted")
                 self.notifyPlaybackStarted()
             }
         }
     }
 
     private func notifyPlaybackStarted() {
-        print("[PC] notifyPlaybackStarted: fired=\(playbackStartedFired) hasCallback=\(onPlaybackStarted != nil)")
         guard !playbackStartedFired else { return }
         playbackStartedFired = true
         status = .playing
@@ -148,7 +143,6 @@ extension PlaybackController: SPTAppRemoteDelegate, SPTAppRemotePlayerStateDeleg
             // VIGTIGT: brug netop dette token til App Remote. Det er autoriseret til
             // app-remote-control på WAMP-laget. PKCE/SPTSessionManager-tokenet er kun
             // et Web API-token og giver "not_authorized" på playerAPI-kald.
-            print("[PC] handleAuthCallback: connecting with App Remote token")
             appRemote.connectionParameters.accessToken = token
             appRemote.connect()
             return true
@@ -177,28 +171,21 @@ extension PlaybackController: SPTAppRemoteDelegate, SPTAppRemotePlayerStateDeleg
     // MARK: SPTAppRemoteDelegate
 
     nonisolated func appRemoteDidEstablishConnection(_ appRemote: SPTAppRemote) {
-        print("[PC] appRemoteDidEstablishConnection")
         Task { @MainActor [weak self] in
             guard let self else { return }
             appRemote.playerAPI?.delegate = self
             appRemote.playerAPI?.subscribe(toPlayerState: nil)
 
             if wantsPause {
-                print("[PC] wantsPause: pausing")
                 appRemote.playerAPI?.pause(nil)
                 return
             }
 
-            guard let uri = pendingURI else {
-                print("[PC] pendingURI nil – fallback-timer afgør start")
-                return
-            }
+            guard let uri = pendingURI else { return }
             // authorizeAndPlayURI genoptager kun den FORRIGE sang når Spotify er pauset
             // (den loader ikke en ny URI). Nu hvor App Remote er forbundet med et gyldigt
             // token, loader vi den rigtige sang eksplicit fra position 0.
-            print("[PC] play(uri) after connect: \(uri)")
-            appRemote.playerAPI?.play(uri, callback: { [weak self] _, error in
-                print("[PC] play callback: error=\(String(describing: error))")
+            appRemote.playerAPI?.play(uri, callback: { [weak self] _, _ in
                 Task { @MainActor [weak self] in
                     guard let self else { return }
                     self.appRemote.playerAPI?.seek(toPosition: 0, callback: nil)
@@ -222,14 +209,12 @@ extension PlaybackController: SPTAppRemoteDelegate, SPTAppRemotePlayerStateDeleg
     // MARK: SPTAppRemotePlayerStateDelegate
 
     nonisolated func playerStateDidChange(_ playerState: SPTAppRemotePlayerState) {
-        print("[PC] playerStateDidChange: isPaused=\(playerState.isPaused)")
         Task { @MainActor [weak self] in
             guard let self else { return }
             // Uventet pause mens spillet kører: webPause-request fra forrige spil kan
             // ankomme til Spotify EFTER det nye spil er startet (race condition med netværks-
             // latency). Genoptag automatisk hvis vi ikke bevidst ønskede en pause.
             if playerState.isPaused && !self.wantsPause && self.playbackStartedFired {
-                print("[PC] auto-resume: uventet pause under spil")
                 self.appRemote.playerAPI?.resume(nil)
                 return  // Behold status=playing; playerStateDidChange fyrer igen med isPaused=false
             }
