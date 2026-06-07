@@ -142,7 +142,10 @@ extension PlaybackController: SPTAppRemoteDelegate, SPTAppRemotePlayerStateDeleg
         }
     }
 
-    func resumePlayback() { appRemote.playerAPI?.resume(nil) }
+    func resumePlayback() {
+        wantsPause = false
+        appRemote.playerAPI?.resume(nil)
+    }
 
     func teardown() {
         // Ryd pendingURI så gen-tilkobling ikke genstarter sangen.
@@ -160,9 +163,11 @@ extension PlaybackController: SPTAppRemoteDelegate, SPTAppRemotePlayerStateDeleg
             appRemote.playerAPI?.subscribe(toPlayerState: nil)
 
             if wantsPause {
-                // Pause straks – uanset om vi tilkoblede for at pause eller genstarte.
+                // Vil pause: send pause nu. Vi RYDDER IKKE wantsPause her –
+                // playerStateDidChange bekræfter at sangen faktisk er pauset.
+                // Det fanger kapløbet hvor authorizeAndPlayURI lige har sat
+                // sangen i gang igen efter den vækkede Spotify-socketten.
                 appRemote.playerAPI?.pause(nil)
-                wantsPause = false
                 return
             }
 
@@ -183,9 +188,9 @@ extension PlaybackController: SPTAppRemoteDelegate, SPTAppRemotePlayerStateDeleg
             guard let self else { return }
 
             if wantsPause {
-                // Stille tilkobling til pause fejlede. Åbn Spotify-appen kortvarigt
-                // for at tvinge socket-serveren op, og pause straks i didEstablish.
-                // wantsPause = true styrer at pause sendes, ikke play.
+                // Stille tilkobling til pause fejlede fordi Spotify-socketten er nede.
+                // authorizeAndPlayURI vækker Spotify; det genstarter desværre sangen,
+                // men playerStateDidChange sender pause igen indtil den faktisk standser.
                 _ = await appRemote.authorizeAndPlayURI(lastPlayedURI ?? "")
                 return
             }
@@ -206,10 +211,10 @@ extension PlaybackController: SPTAppRemoteDelegate, SPTAppRemotePlayerStateDeleg
         Task { @MainActor [weak self] in
             guard let self else { return }
             status = .disconnected
-            // Forsøg øjeblikkelig stille gen-tilkobling. Hvis pendingURI = nil
-            // (sangen er startet) genstarter didEstablish IKKE sangen – den
-            // abonnerer blot på spillertilstand igen.
-            if appRemote.connectionParameters.accessToken != nil {
+            // Gen-tilkobl kun hvis vi har en hensigt (pause skal sendes, eller en
+            // sang skal startes) – ellers undgår vi en endeløs reconnect-storm.
+            if (wantsPause || pendingURI != nil),
+               appRemote.connectionParameters.accessToken != nil {
                 appRemote.connect()
             }
         }
@@ -219,7 +224,20 @@ extension PlaybackController: SPTAppRemoteDelegate, SPTAppRemotePlayerStateDeleg
 
     nonisolated func playerStateDidChange(_ playerState: SPTAppRemotePlayerState) {
         Task { @MainActor [weak self] in
-            self?.status = playerState.isPaused ? .paused : .playing
+            guard let self else { return }
+            if wantsPause {
+                if playerState.isPaused {
+                    // Pause er bekræftet – stop med at forsøge.
+                    wantsPause = false
+                    status = .paused
+                } else {
+                    // Stadig i gang (fx fordi authorizeAndPlayURI genstartede den).
+                    // Send pause igen indtil den faktisk standser.
+                    appRemote.playerAPI?.pause(nil)
+                }
+                return
+            }
+            status = playerState.isPaused ? .paused : .playing
         }
     }
 }
