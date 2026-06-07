@@ -84,51 +84,6 @@ extension PlaybackController: SPTAppRemoteDelegate, SPTAppRemotePlayerStateDeleg
         _ = try? await URLSession.shared.data(for: req)
     }
 
-    /// PUT /me/player/play — starter sangen fra position 0.
-    /// Returnerer true hvis Web API lykkedes, false hvis Spotify-appen skal åbnes.
-    ///
-    /// Hvis der ikke er nogen aktiv enhed (404), slår vi tilgængelige enheder op
-    /// og målretter afspilningen til den første – det "vækker" en inaktiv enhed
-    /// (fx Spotify-appen i baggrunden) uden at åbne den i forgrunden.
-    private func webPlay(uri: String) async -> Bool {
-        guard let token = try? await auth.validAccessToken() else { return false }
-
-        if await webPlayRequest(uri: uri, token: token, deviceID: nil) { return true }
-
-        // Ingen aktiv enhed: find en tilgængelig og prøv igen målrettet.
-        if let deviceID = await availableDeviceID(token: token) {
-            return await webPlayRequest(uri: uri, token: token, deviceID: deviceID)
-        }
-        return false
-    }
-
-    private func webPlayRequest(uri: String, token: String, deviceID: String?) async -> Bool {
-        var components = URLComponents(string: "https://api.spotify.com/v1/me/player/play")!
-        if let deviceID { components.queryItems = [URLQueryItem(name: "device_id", value: deviceID)] }
-        var req = URLRequest(url: components.url!)
-        req.httpMethod = "PUT"
-        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try? JSONSerialization.data(withJSONObject: [
-            "uris": [uri], "position_ms": 0
-        ])
-        guard let (_, response) = try? await URLSession.shared.data(for: req),
-              let http = response as? HTTPURLResponse else { return false }
-        return (200..<300).contains(http.statusCode)
-    }
-
-    /// GET /me/player/devices — returnerer id på en tilgængelig afspilningsenhed.
-    private func availableDeviceID(token: String) async -> String? {
-        var req = URLRequest(url: URL(string: "https://api.spotify.com/v1/me/player/devices")!)
-        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        guard let (data, _) = try? await URLSession.shared.data(for: req),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let devices = json["devices"] as? [[String: Any]] else { return nil }
-        // Foretræk en aktiv enhed, ellers den første tilgængelige.
-        let active = devices.first { ($0["is_active"] as? Bool) == true }
-        return (active?["id"] as? String) ?? (devices.first?["id"] as? String)
-    }
-
     // MARK: - Afspilning
 
     func startPlayback(uri: String, accessToken: String?) {
@@ -138,29 +93,31 @@ extension PlaybackController: SPTAppRemoteDelegate, SPTAppRemotePlayerStateDeleg
         if let accessToken { appRemote.connectionParameters.accessToken = accessToken }
 
         if appRemote.isConnected, let playerAPI = appRemote.playerAPI {
-            // App Remote er forbundet: brug den direkte for præcis callback.
+            // App Remote er forbundet: start direkte (ingen Spotify-flash).
             playerAPI.seek(toPosition: 0, callback: nil)
             playerAPI.play(uri, callback: { [weak self] _, _ in
                 Task { @MainActor in self?.notifyPlaybackStarted() }
             })
-        } else {
-            // App Remote socket er nede – brug Web API og forsøg App Remote i baggrunden.
-            status = .connecting
-            Task {
-                let ok = await webPlay(uri: uri)
-                if ok {
-                    // Web API lykkedes. App Remote har 2 sek til at tilkoble og
-                    // affyre onPlaybackStarted; ellers bruger vi timeren som fallback.
-                    Task { @MainActor [weak self] in
-                        try? await Task.sleep(nanoseconds: 2_000_000_000)
-                        self?.notifyPlaybackStarted()
-                    }
-                } else {
-                    // Ingen aktiv Spotify-enhed – åbn Spotify-appen som last resort.
-                    _ = await appRemote.authorizeAndPlayURI(uri)
+            return
+        }
+
+        // App Remote socket er nede. authorizeAndPlayURI er den eneste pålidelige
+        // måde at vække Spotify og rent faktisk starte lyd: den åbner Spotify kort,
+        // starter sangen og forbinder App Remote igen. Web API kan IKKE vække en
+        // lukket/baggrunds-app – den styrer kun en allerede aktiv enhed.
+        status = .connecting
+        appRemote.authorizeAndPlayURI(uri) { [weak self] success in
+            // success = NO betyder kun at Spotify-appen ikke er installeret.
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if !success {
+                    self.status = .failed("Spotify-appen kunne ikke åbnes.")
+                    return
                 }
+                // Fallback hvis App Remote ikke når at melde "spiller" indenfor 4 sek.
+                try? await Task.sleep(nanoseconds: 4_000_000_000)
+                self.notifyPlaybackStarted()
             }
-            appRemote.connect()
         }
     }
 
@@ -239,6 +196,11 @@ extension PlaybackController: SPTAppRemoteDelegate, SPTAppRemotePlayerStateDeleg
     nonisolated func playerStateDidChange(_ playerState: SPTAppRemotePlayerState) {
         Task { @MainActor [weak self] in
             guard let self else { return }
+            // Når Spotify faktisk begynder at spille, er det det præcise signal til
+            // at starte nedtælling/ur – mere nøjagtigt end fallback-timeren.
+            if !playerState.isPaused && !self.wantsPause {
+                self.notifyPlaybackStarted()
+            }
             status = playerState.isPaused ? .paused : .playing
         }
     }
