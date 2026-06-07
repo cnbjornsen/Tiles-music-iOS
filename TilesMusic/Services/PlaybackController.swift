@@ -143,11 +143,12 @@ extension PlaybackController: SPTAppRemoteDelegate, SPTAppRemotePlayerStateDeleg
 
     func handleAuthCallback(_ url: URL) -> Bool {
         let params = appRemote.authorizationParameters(from: url)
-        if params?[SPTAppRemoteAccessTokenKey] != nil {
-            // Brug IKKE URL-callback-tokenet: det har begrænset WAMP-autorisation og
-            // medfører "not_authorized" på play(uri). PKCE-tokenet (sat i startPlayback)
-            // virker for App Remote og har de rette rettigheder.
-            print("[PC] handleAuthCallback: connecting with PKCE token")
+        if let token = params?[SPTAppRemoteAccessTokenKey] {
+            // VIGTIGT: brug netop dette token til App Remote. Det er autoriseret til
+            // app-remote-control på WAMP-laget. PKCE/SPTSessionManager-tokenet er kun
+            // et Web API-token og giver "not_authorized" på playerAPI-kald.
+            print("[PC] handleAuthCallback: connecting with App Remote token")
+            appRemote.connectionParameters.accessToken = token
             appRemote.connect()
             return true
         }

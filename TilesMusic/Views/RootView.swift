@@ -23,10 +23,7 @@ struct RootView: View {
                 LoginView()
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .spotifyCallbackURL)) { note in
-            if let url = note.object as? URL {
-                _ = playback.handleOpenURL(url)
-            }
-        }
+        // Bemærk: PlaybackController abonnerer selv på .spotifyCallbackURL, så vi
+        // viderestiller IKKE her – ellers kaldes handleOpenURL to gange (dobbelt connect).
     }
 }
