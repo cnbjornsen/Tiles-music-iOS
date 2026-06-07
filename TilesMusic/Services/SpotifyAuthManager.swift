@@ -68,6 +68,8 @@ final class SpotifyAuthManager: NSObject, ObservableObject {
             .playlistReadPrivate, .playlistReadCollaborative,
             .userLibraryRead, .userTopRead,
             .userReadPrivate, .userReadEmail,
+            // Kræves for Web API play/pause (/me/player/*).
+            .userModifyPlaybackState, .userReadPlaybackState,
         ]
         // Empty OptionSet == rawValue 0 == default (Spotify app if installed, else browser).
         sessionManager.initiateSession(with: scopes, options: [], campaign: nil)

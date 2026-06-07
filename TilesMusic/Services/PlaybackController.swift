@@ -86,9 +86,26 @@ extension PlaybackController: SPTAppRemoteDelegate, SPTAppRemotePlayerStateDeleg
 
     /// PUT /me/player/play — starter sangen fra position 0.
     /// Returnerer true hvis Web API lykkedes, false hvis Spotify-appen skal åbnes.
+    ///
+    /// Hvis der ikke er nogen aktiv enhed (404), slår vi tilgængelige enheder op
+    /// og målretter afspilningen til den første – det "vækker" en inaktiv enhed
+    /// (fx Spotify-appen i baggrunden) uden at åbne den i forgrunden.
     private func webPlay(uri: String) async -> Bool {
         guard let token = try? await auth.validAccessToken() else { return false }
-        var req = URLRequest(url: URL(string: "https://api.spotify.com/v1/me/player/play")!)
+
+        if await webPlayRequest(uri: uri, token: token, deviceID: nil) { return true }
+
+        // Ingen aktiv enhed: find en tilgængelig og prøv igen målrettet.
+        if let deviceID = await availableDeviceID(token: token) {
+            return await webPlayRequest(uri: uri, token: token, deviceID: deviceID)
+        }
+        return false
+    }
+
+    private func webPlayRequest(uri: String, token: String, deviceID: String?) async -> Bool {
+        var components = URLComponents(string: "https://api.spotify.com/v1/me/player/play")!
+        if let deviceID { components.queryItems = [URLQueryItem(name: "device_id", value: deviceID)] }
+        var req = URLRequest(url: components.url!)
         req.httpMethod = "PUT"
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -98,6 +115,18 @@ extension PlaybackController: SPTAppRemoteDelegate, SPTAppRemotePlayerStateDeleg
         guard let (_, response) = try? await URLSession.shared.data(for: req),
               let http = response as? HTTPURLResponse else { return false }
         return (200..<300).contains(http.statusCode)
+    }
+
+    /// GET /me/player/devices — returnerer id på en tilgængelig afspilningsenhed.
+    private func availableDeviceID(token: String) async -> String? {
+        var req = URLRequest(url: URL(string: "https://api.spotify.com/v1/me/player/devices")!)
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        guard let (data, _) = try? await URLSession.shared.data(for: req),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let devices = json["devices"] as? [[String: Any]] else { return nil }
+        // Foretræk en aktiv enhed, ellers den første tilgængelige.
+        let active = devices.first { ($0["is_active"] as? Bool) == true }
+        return (active?["id"] as? String) ?? (devices.first?["id"] as? String)
     }
 
     // MARK: - Afspilning

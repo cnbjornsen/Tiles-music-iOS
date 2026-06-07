@@ -32,6 +32,9 @@ enum SpotifyConfig {
         "user-top-read",
         "app-remote-control",
         "streaming",
+        // Kræves for Web API play/pause (/me/player/*).
+        "user-modify-playback-state",
+        "user-read-playback-state",
     ]
 
     static var scopeString: String { scopes.joined(separator: " ") }
