@@ -141,8 +141,11 @@ extension PlaybackController: SPTAppRemoteDelegate, SPTAppRemotePlayerStateDeleg
 
     func handleAuthCallback(_ url: URL) -> Bool {
         let params = appRemote.authorizationParameters(from: url)
-        if let token = params?[SPTAppRemoteAccessTokenKey] {
-            appRemote.connectionParameters.accessToken = token
+        if params?[SPTAppRemoteAccessTokenKey] != nil {
+            // Brug IKKE URL-callback-tokenet: det har begrænset WAMP-autorisation og
+            // medfører "not_authorized" på play(uri). PKCE-tokenet (sat i startPlayback)
+            // virker for App Remote og har de rette rettigheder.
+            print("[PC] handleAuthCallback: connecting with PKCE token")
             appRemote.connect()
             return true
         }
@@ -173,25 +176,18 @@ extension PlaybackController: SPTAppRemoteDelegate, SPTAppRemotePlayerStateDeleg
         print("[PC] appRemoteDidEstablishConnection")
         Task { @MainActor [weak self] in
             guard let self else { return }
-            print("[PC] playerAPI=\(String(describing: appRemote.playerAPI)), pendingURI=\(pendingURI ?? "nil"), wantsPause=\(wantsPause)")
             appRemote.playerAPI?.delegate = self
+            // Subscribe – SDK sender øjeblikkeligt den aktuelle spiller-tilstand,
+            // så playerStateDidChange(isPaused:false) bruges som præcist startsignal.
             appRemote.playerAPI?.subscribe(toPlayerState: nil)
 
             if wantsPause {
-                print("[PC] wantsPause: pausing via App Remote")
+                print("[PC] wantsPause: pausing")
                 appRemote.playerAPI?.pause(nil)
-                return
             }
-            if let uri = pendingURI {
-                print("[PC] sending play: \(uri)")
-                appRemote.playerAPI?.seek(toPosition: 0, callback: nil)
-                appRemote.playerAPI?.play(uri, callback: { [weak self] result, error in
-                    print("[PC] play callback: result=\(String(describing: result)) error=\(String(describing: error))")
-                    Task { @MainActor in self?.notifyPlaybackStarted() }
-                })
-            } else {
-                print("[PC] pendingURI is nil — play not sent")
-            }
+            // Kalder IKKE play(uri) her: authorizeAndPlayURI startede allerede sangen,
+            // og play(uri) giver "not_authorized" med URL-callback-tokenet.
+            // playerStateDidChange fyrer notifyPlaybackStarted når Spotify melder "spiller".
         }
     }
 
