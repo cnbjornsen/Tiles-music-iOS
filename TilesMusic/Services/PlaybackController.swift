@@ -114,16 +114,21 @@ extension PlaybackController: SPTAppRemoteDelegate, SPTAppRemotePlayerStateDeleg
     func pausePlayback() {
         // Sæt altid flaget så pause sker, selv hvis App Remote ikke er forbundet endnu.
         wantsPause = true
-        if appRemote.isConnected { appRemote.playerAPI?.pause(nil) }
+        if appRemote.isConnected {
+            appRemote.playerAPI?.pause(nil)
+        } else if appRemote.connectionParameters.accessToken != nil {
+            // App Remote-forbindelsen kan være faldet væk mens Spotify stadig spiller.
+            // Genopret den, så pausen sendes når forbindelsen er etableret (didEstablish).
+            appRemote.connect()
+        }
     }
 
     func resumePlayback() { appRemote.playerAPI?.resume(nil) }
 
     func teardown() {
-        // Bevar forbindelsen til App Remote, så replay og næste sang virker.
-        // Sæt blot wantsPause = true, så musikken pauses ved næste tilkobling.
-        wantsPause = true
-        if appRemote.isConnected { appRemote.playerAPI?.pause(nil) }
+        // Bevar forbindelsen til App Remote, så replay og næste sang virker –
+        // men sørg altid for at musikken faktisk standses.
+        pausePlayback()
         status = .paused
     }
 

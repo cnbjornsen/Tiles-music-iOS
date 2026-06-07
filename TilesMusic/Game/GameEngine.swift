@@ -63,7 +63,8 @@ final class GameEngine: NSObject, ObservableObject {
     func load(beatmap: Beatmap, difficulty: Difficulty, onHit: (() -> Void)?) {
         self.beatmap = beatmap
         self.tiles = beatmap.tiles
-        self.approachDuration = difficulty.approachDuration
+        // Hastigheden følger sangens tempo; sværhedsgraden styrer kun antal/typer tiles.
+        self.approachDuration = beatmap.approachDuration
         self.onHit = onHit
         score = 0; combo = 0; maxCombo = 0; lives = Self.startingLives
         isFinished = false; didWin = false; lastJudgement = nil

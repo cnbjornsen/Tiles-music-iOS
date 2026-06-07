@@ -39,6 +39,10 @@ struct Beatmap {
 
     /// Sidste tidspunkt hvor noget sker — bruges til at afgøre hvornår spillet er slut.
     var endTime: Double { (tiles.map(\.endTime).max() ?? 0) + 2.0 }
+
+    /// Tile-hastigheden følger sangens tempo (ikke sværhedsgraden): tiles er
+    /// synlige i et fast antal beats, så hurtigere sange giver hurtigere tiles.
+    var approachDuration: Double { BeatmapGenerator.approachDuration(forBPM: bpm) }
 }
 
 /// Sværhedsgrad styrer hvor mange tiles der genereres pr. takt.
@@ -55,15 +59,6 @@ enum Difficulty: String, CaseIterable, Identifiable {
         case .easy: return 0.5
         case .medium: return 1.0
         case .hard: return 2.0
-        }
-    }
-
-    /// Tid (sekunder) en tile er synlig mens den falder. Hurtigere = sværere.
-    var approachDuration: Double {
-        switch self {
-        case .easy: return 1.9
-        case .medium: return 1.5
-        case .hard: return 1.15
         }
     }
 
@@ -93,17 +88,28 @@ enum Difficulty: String, CaseIterable, Identifiable {
 /// tilfældighedsgenerator sikrer at den samme sang altid giver det samme mønster.
 enum BeatmapGenerator {
 
+    /// Tile-hastighed udledt af tempoet: en tile er synlig i et fast antal beats,
+    /// så velocity (px/sek.) skalerer med BPM. Clampes til et spilbart interval,
+    /// så meget langsomme/hurtige sange stadig føles rimelige. Uafhængig af sværhedsgrad.
+    static func approachDuration(forBPM bpm: Double) -> Double {
+        let safeBPM = (bpm > 30 && bpm < 260) ? bpm : 120
+        let secondsPerBeat = 60.0 / safeBPM
+        let beatsOnScreen = 3.0
+        return min(2.4, max(0.9, beatsOnScreen * secondsPerBeat))
+    }
+
     static func make(bpm: Double, durationSeconds: Double, difficulty: Difficulty, seed: UInt64) -> Beatmap {
         let safeBPM = (bpm > 30 && bpm < 260) ? bpm : 120
         let secondsPerBeat = 60.0 / safeBPM
         let interval = secondsPerBeat / difficulty.tilesPerBeat
+        let approach = approachDuration(forBPM: safeBPM)
 
         var rng = SeededGenerator(seed: seed)
         var tiles: [Tile] = []
 
-        // Start efter nedtællingen (~2.85 s) + approachDuration så den første tile
+        // Start efter nedtællingen (~2.6 s) + approachDuration så den første tile
         // begynder at falde præcis når spillet starter, og aldrig før musikken er begyndt.
-        let start = max(3.6 + difficulty.approachDuration, secondsPerBeat * 4)
+        let start = max(3.6 + approach, secondsPerBeat * 4)
         let end = max(start, durationSeconds - 1.5)
 
         var t = start

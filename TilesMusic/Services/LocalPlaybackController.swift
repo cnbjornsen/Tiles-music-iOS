@@ -17,6 +17,10 @@ final class LocalPlaybackController: ObservableObject, GamePlayback {
 
     func begin() {
         configureSession()
+        // Nulstil så et replay starter sangen helt forfra og fyrer "startet" igen.
+        if let timeObserver { player?.removeTimeObserver(timeObserver) }
+        timeObserver = nil
+        started = false
         let item = AVPlayerItem(url: url)
         let p = AVPlayer(playerItem: item)
         player = p
