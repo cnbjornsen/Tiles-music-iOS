@@ -101,8 +101,9 @@ enum BeatmapGenerator {
         var rng = SeededGenerator(seed: seed)
         var tiles: [Tile] = []
 
-        // Start lidt inde i sangen så intro ikke straffer spilleren, og stop før outro.
-        let start = max(1.0, secondsPerBeat * 2)
+        // Start efter nedtællingen (~2.85 s) + approachDuration så den første tile
+        // begynder at falde præcis når spillet starter, og aldrig før musikken er begyndt.
+        let start = max(3.6 + difficulty.approachDuration, secondsPerBeat * 4)
         let end = max(start, durationSeconds - 1.5)
 
         var t = start
@@ -130,13 +131,16 @@ enum BeatmapGenerator {
 
             tiles.append(Tile(lane: lane, time: t))
 
-            // Indimellem en akkord: en ekstra tap-tile i en anden bane samtidig.
+            // Indimellem en akkord: en ekstra tap-tile i en bane med mindst
+            // én fri bane imellem (aldrig to tiles direkte ved siden af hinanden).
             let chordRoll = Double(rng.next() % 1000) / 1000.0
             if chordRoll < difficulty.chordChance {
-                var second = Int(rng.next() % UInt64(kLaneCount))
-                if second == lane { second = (second + 1) % kLaneCount }
-                tiles.append(Tile(lane: second, time: t))
-                lastLane = second
+                let candidates = (0..<kLaneCount).filter { abs($0 - lane) >= 2 }
+                if !candidates.isEmpty {
+                    let second = candidates[Int(rng.next() % UInt64(candidates.count))]
+                    tiles.append(Tile(lane: second, time: t))
+                    lastLane = second
+                }
             }
 
             t += interval

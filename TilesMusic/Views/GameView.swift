@@ -22,6 +22,7 @@ struct GameView: View {
     @State private var countdownScale: CGFloat = 1
     @State private var playBeganAt: Date? = nil
     @State private var deathFlash = false
+    @State private var isWaitingForPlayback = false
 
     @Environment(\.dismiss) private var dismiss
 
@@ -179,15 +180,21 @@ struct GameView: View {
 
     @ViewBuilder
     private var countdownOverlay: some View {
-        if let countdown {
+        if isWaitingForPlayback || countdown != nil {
             ZStack {
                 Color.black.opacity(0.45).ignoresSafeArea()
-                Text(countdown == 0 ? "Go!" : "\(countdown)")
-                    .font(.system(size: 130, weight: .black, design: .rounded))
-                    .foregroundStyle(LinearGradient(colors: [.cyan, .purple, .pink],
-                                                    startPoint: .topLeading, endPoint: .bottomTrailing))
-                    .scaleEffect(countdownScale)
-                    .shadow(color: .purple.opacity(0.7), radius: 20)
+                if isWaitingForPlayback {
+                    ProgressView()
+                        .scaleEffect(2)
+                        .tint(.white)
+                } else if let countdown {
+                    Text(countdown == 0 ? "Go!" : "\(countdown)")
+                        .font(.system(size: 130, weight: .black, design: .rounded))
+                        .foregroundStyle(LinearGradient(colors: [.cyan, .purple, .pink],
+                                                        startPoint: .topLeading, endPoint: .bottomTrailing))
+                        .scaleEffect(countdownScale)
+                        .shadow(color: .purple.opacity(0.7), radius: 20)
+                }
             }
             .allowsHitTesting(false)
             .transition(.opacity)
@@ -383,11 +390,19 @@ struct GameView: View {
         deathFlash = false
         sound.start()
         engine.load(beatmap: beatmap, difficulty: difficulty, onHit: nil)
-        // Musikken vækkes med det samme, så der er buffer mens nedtællingen kører.
-        playback.onPlaybackStarted = nil
-        playBeganAt = Date()
+        countdown = nil
+        playBeganAt = nil
+        // Vis spinner og vent på at Spotify faktisk begynder at spille, før
+        // nedtællingen starter – så spillet er synkroniseret med sangen.
+        isWaitingForPlayback = true
+        playback.onPlaybackStarted = {
+            Task { @MainActor in
+                self.playBeganAt = Date()
+                self.isWaitingForPlayback = false
+                self.runCountdown()
+            }
+        }
         playback.begin()
-        runCountdown()
     }
 
     /// Animeret 3-2-1-Go nedtælling. Når den er færdig, startes uret synkroniseret
@@ -419,8 +434,9 @@ struct GameView: View {
     private func teardown() {
         engine.stop()
         sound.stop()
-        playback.pause()
+        isWaitingForPlayback = false
         playback.onPlaybackStarted = nil
+        playback.pause()
     }
 
     private func quit() {

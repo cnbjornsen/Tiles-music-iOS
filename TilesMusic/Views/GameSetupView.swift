@@ -10,6 +10,7 @@ struct GameSetupView: View {
     @State private var beatmap: Beatmap?
     @State private var isPreparing = false
     @State private var goToGame = false
+    @State private var bestScore: Int = 0
 
     var body: some View {
         VStack(spacing: 24) {
@@ -27,11 +28,10 @@ struct GameSetupView: View {
             .pickerStyle(.segmented)
             .padding(.horizontal)
 
-            let best = HighscoreStore.best(trackID: track.id, difficulty: difficulty)
-            Label(best > 0 ? "Rekord: \(best)" : "Ingen rekord endnu",
-                  systemImage: best > 0 ? "trophy.fill" : "trophy")
+            Label(bestScore > 0 ? "Rekord: \(bestScore)" : "Ingen rekord endnu",
+                  systemImage: bestScore > 0 ? "trophy.fill" : "trophy")
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(best > 0 ? .yellow : .secondary)
+                .foregroundStyle(bestScore > 0 ? .yellow : .secondary)
 
             Text("Tiles falder i takt med sangens tempo. Tryk i den rigtige bane lige når tilen rammer linjen. Lange tiles (hold-tiles) skal holdes nede til de er færdige.")
                 .font(.footnote)
@@ -62,6 +62,12 @@ struct GameSetupView: View {
         .padding(.top, 32)
         .navigationTitle("Klar?")
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            bestScore = HighscoreStore.best(trackID: track.id, difficulty: difficulty)
+        }
+        .task(id: difficulty) {
+            bestScore = HighscoreStore.best(trackID: track.id, difficulty: difficulty)
+        }
         .navigationDestination(isPresented: $goToGame) {
             if let beatmap {
                 GameView(track: GameTrack(track), beatmap: beatmap, difficulty: difficulty, playback: playback)
