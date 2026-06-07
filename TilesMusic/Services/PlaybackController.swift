@@ -186,13 +186,13 @@ extension PlaybackController: SPTAppRemoteDelegate, SPTAppRemotePlayerStateDeleg
                 // Stille tilkobling til pause fejlede. Åbn Spotify-appen kortvarigt
                 // for at tvinge socket-serveren op, og pause straks i didEstablish.
                 // wantsPause = true styrer at pause sendes, ikke play.
-                appRemote.authorizeAndPlayURI(lastPlayedURI ?? "", completionHandler: nil)
+                _ = await appRemote.authorizeAndPlayURI(lastPlayedURI ?? "")
                 return
             }
 
             if let uri = pendingURI {
                 // Første tilkobling til en ny sang fejlede – åbn Spotify-appen.
-                appRemote.authorizeAndPlayURI(uri, completionHandler: nil)
+                _ = await appRemote.authorizeAndPlayURI(uri)
                 return
             }
 
