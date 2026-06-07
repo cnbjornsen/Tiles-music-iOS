@@ -189,22 +189,20 @@ extension PlaybackController: SPTAppRemoteDelegate, SPTAppRemotePlayerStateDeleg
                 return
             }
 
-            // subscribe() fyrer kun ved STATE-ÆNDRINGER – ikke ved den aktuelle tilstand.
-            // getPlayerState() giver os den øjeblikkelige tilstand (Spotify spiller allerede
-            // via authorizeAndPlayURI), så vi kan affyre notifyPlaybackStarted med det samme.
-            appRemote.playerAPI?.getPlayerState({ [weak self] result, error in
-                print("[PC] getPlayerState: error=\(String(describing: error))")
-                guard let state = result as? SPTAppRemotePlayerState else {
-                    print("[PC] getPlayerState: ingen tilstand – venter på fallback-timer")
-                    return
-                }
-                print("[PC] getPlayerState: isPaused=\(state.isPaused) uri=\(state.track.uri)")
+            guard let uri = pendingURI else {
+                print("[PC] pendingURI nil – fallback-timer afgør start")
+                return
+            }
+            // authorizeAndPlayURI genoptager kun den FORRIGE sang når Spotify er pauset
+            // (den loader ikke en ny URI). Nu hvor App Remote er forbundet med et gyldigt
+            // token, loader vi den rigtige sang eksplicit fra position 0.
+            print("[PC] play(uri) after connect: \(uri)")
+            appRemote.playerAPI?.play(uri, callback: { [weak self] _, error in
+                print("[PC] play callback: error=\(String(describing: error))")
                 Task { @MainActor [weak self] in
-                    guard let self, !self.wantsPause else { return }
-                    if !state.isPaused {
-                        self.notifyPlaybackStarted()
-                    }
-                    // Spotify er paused: afvent playerStateDidChange eller fallback-timer.
+                    guard let self else { return }
+                    self.appRemote.playerAPI?.seek(toPosition: 0, callback: nil)
+                    self.notifyPlaybackStarted()
                 }
             })
         }
@@ -226,14 +224,10 @@ extension PlaybackController: SPTAppRemoteDelegate, SPTAppRemotePlayerStateDeleg
     nonisolated func playerStateDidChange(_ playerState: SPTAppRemotePlayerState) {
         print("[PC] playerStateDidChange: isPaused=\(playerState.isPaused)")
         Task { @MainActor [weak self] in
-            guard let self else {
-                print("[PC] playerStateDidChange Task: self is nil!")
-                return
-            }
-            print("[PC] playerStateDidChange Task: wantsPause=\(self.wantsPause) playbackStartedFired=\(self.playbackStartedFired)")
-            if !playerState.isPaused && !self.wantsPause {
-                self.notifyPlaybackStarted()
-            }
+            guard let self else { return }
+            // notifyPlaybackStarted fyres IKKE her: den forrige sang kan kortvarigt
+            // melde "spiller" før den korrekte sang loades via play(uri). Start-signalet
+            // kommer fra play(uri)-callbacket i appRemoteDidEstablishConnection.
             status = playerState.isPaused ? .paused : .playing
         }
     }
