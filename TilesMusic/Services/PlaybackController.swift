@@ -19,6 +19,7 @@ final class PlaybackController: NSObject, ObservableObject, GamePlayback {
     private var queuedTrack: Track?
     private var wantsPause = false
     private var playbackStartedFired = false
+    private var pauseTask: Task<Void, Never>?
 
     init(auth: SpotifyAuthManager) {
         self.auth = auth
@@ -76,8 +77,11 @@ extension PlaybackController: SPTAppRemoteDelegate, SPTAppRemotePlayerStateDeleg
     // MARK: - Spotify Web API
 
     /// PUT /me/player/pause — virker uden App Remote socket (Spotify baggrunds-kompatibel).
+    /// Tjekker Task.isCancelled så et hurtigt genstart ikke pauser den nye sang.
     private func webPause() async {
+        guard !Task.isCancelled else { return }
         guard let token = try? await auth.validAccessToken() else { return }
+        guard !Task.isCancelled else { return }
         var req = URLRequest(url: URL(string: "https://api.spotify.com/v1/me/player/pause")!)
         req.httpMethod = "PUT"
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -87,6 +91,9 @@ extension PlaybackController: SPTAppRemoteDelegate, SPTAppRemotePlayerStateDeleg
     // MARK: - Afspilning
 
     func startPlayback(uri: String, accessToken: String?) {
+        // Annullér et evt. igangværende webPause-kald så det ikke pauser den nye sang.
+        pauseTask?.cancel()
+        pauseTask = nil
         pendingURI = uri
         wantsPause = false
         playbackStartedFired = false
@@ -141,9 +148,8 @@ extension PlaybackController: SPTAppRemoteDelegate, SPTAppRemotePlayerStateDeleg
 
     func pausePlayback() {
         wantsPause = true
-        // Web API pause: øjeblikkelig og pålidelig – kræver ikke App Remote socket.
-        Task { await webPause() }
-        // Ekstra: pause via App Remote også hvis den er forbundet.
+        pauseTask?.cancel()
+        pauseTask = Task { await webPause() }
         if appRemote.isConnected { appRemote.playerAPI?.pause(nil) }
         status = .paused
     }
