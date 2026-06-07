@@ -42,6 +42,8 @@ final class SoundEngine {
         player.stop()
         engine.stop()
         started = false
+        // Giv lyd-fokus tilbage til Spotify så musikken ikke kan blive "kvalt".
+        try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
     }
 
     func playLifeLost() {
