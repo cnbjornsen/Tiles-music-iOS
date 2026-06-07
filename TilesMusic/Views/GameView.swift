@@ -97,7 +97,10 @@ struct GameView: View {
             }
         }
         .onAppear { startGame() }
-        .onDisappear { teardown() }
+        // Bemærk: teardown() kaldes IKKE ved onDisappear fordi quit() og den automatiske
+        // game-over-sti allerede kalder det eksplicit. onDisappear overlapper med det
+        // næste GameViews onAppear/startGame i SwiftUI og vil sætte wantsPause=true
+        // EFTER startGame sætter det til false – det blokkerer musikken.
     }
 
     // MARK: - Faldende tiles + hold + hit-effekter

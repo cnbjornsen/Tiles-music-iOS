@@ -134,6 +134,7 @@ extension PlaybackController: SPTAppRemoteDelegate, SPTAppRemotePlayerStateDeleg
     }
 
     private func notifyPlaybackStarted() {
+        print("[PC] notifyPlaybackStarted: fired=\(playbackStartedFired) hasCallback=\(onPlaybackStarted != nil)")
         guard !playbackStartedFired else { return }
         playbackStartedFired = true
         status = .playing
@@ -225,7 +226,11 @@ extension PlaybackController: SPTAppRemoteDelegate, SPTAppRemotePlayerStateDeleg
     nonisolated func playerStateDidChange(_ playerState: SPTAppRemotePlayerState) {
         print("[PC] playerStateDidChange: isPaused=\(playerState.isPaused)")
         Task { @MainActor [weak self] in
-            guard let self else { return }
+            guard let self else {
+                print("[PC] playerStateDidChange Task: self is nil!")
+                return
+            }
+            print("[PC] playerStateDidChange Task: wantsPause=\(self.wantsPause) playbackStartedFired=\(self.playbackStartedFired)")
             if !playerState.isPaused && !self.wantsPause {
                 self.notifyPlaybackStarted()
             }
